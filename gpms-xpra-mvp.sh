@@ -34,6 +34,64 @@ require_bin xpra
 require_bin ps
 require_bin awk
 
+collect_tree_pids() {
+  local root
+  root="$1"
+  local queue=("${root}")
+  local seen=" ${root} "
+  local out=("${root}")
+  local cur child
+
+  while ((${#queue[@]} > 0)); do
+    cur="${queue[0]}"
+    queue=("${queue[@]:1}")
+    while IFS= read -r child; do
+      [[ -z "${child}" ]] && continue
+      if [[ "${seen}" != *" ${child} "* ]]; then
+        seen+=" ${child} "
+        out+=("${child}")
+        queue+=("${child}")
+      fi
+    done < <(pgrep -P "${cur}" 2>/dev/null || true)
+  done
+
+  printf '%s\n' "${out[@]}"
+}
+
+force_stop_stale_session() {
+  local user_run stale_pid p
+  user_run="/run/user/$(id -u)/xpra/${DISPLAY_NUM}/server.pid"
+
+  stale_pid=""
+  if [[ -f "${user_run}" ]]; then
+    stale_pid="$(cat "${user_run}" 2>/dev/null || true)"
+  fi
+  if [[ -z "${stale_pid}" ]]; then
+    stale_pid="$(pgrep -u "$(id -u)" -f "/usr/bin/xpra start :${DISPLAY_NUM}" 2>/dev/null | head -n 1 || true)"
+  fi
+
+  if [[ -z "${stale_pid}" ]] || ! [[ "${stale_pid}" =~ ^[0-9]+$ ]] || ! ps -p "${stale_pid}" >/dev/null 2>&1; then
+    return 0
+  fi
+
+  echo "[start] forcing stale xpra tree shutdown for ${DISPLAY_ID} (pid=${stale_pid})"
+
+  mapfile -t tree < <(collect_tree_pids "${stale_pid}")
+  for p in "${tree[@]}"; do
+    kill -CONT "${p}" 2>/dev/null || true
+  done
+  for p in "${tree[@]}"; do
+    kill -TERM "${p}" 2>/dev/null || true
+  done
+
+  sleep 1
+  for p in "${tree[@]}"; do
+    if ps -p "${p}" >/dev/null 2>&1; then
+      kill -KILL "${p}" 2>/dev/null || true
+    fi
+  done
+}
+
 display_paths_cleanup() {
   local user_run
   user_run="/run/user/$(id -u)/xpra"
@@ -117,6 +175,7 @@ start_session() {
   local start_flag
   echo "[start] stopping stale session on ${DISPLAY_ID} (if any)"
   xpra stop "${DISPLAY_ID}" >"${LOGDIR}/stop-${DISPLAY_NUM}.log" 2>&1 || true
+  force_stop_stale_session
   display_paths_cleanup
 
   if [[ "${START_MODE}" == "start-child" ]]; then
@@ -234,6 +293,7 @@ freeze_test() {
 stop_session() {
   echo "[stop] stopping ${DISPLAY_ID}"
   xpra stop "${DISPLAY_ID}" >"${LOGDIR}/stop-${DISPLAY_NUM}.log" 2>&1 || true
+  force_stop_stale_session
   display_paths_cleanup
   echo "[stop] done"
 }

@@ -102,7 +102,8 @@ if [[ ! "${XPRA_PID}" =~ ^[0-9]+$ ]] || ! ps -p "${XPRA_PID}" >/dev/null 2>&1; t
 fi
 
 APP_CMD="$(xpra info ":${SESSION}" 2>/dev/null \
-  | awk -F= '/^command\.0\.name=/{print substr($0, index($0, "=")+1); exit}')"
+  | awk -F= '/^command\.0\.name=/ && !seen {print substr($0, index($0, "=")+1); seen=1}' \
+  || true)"
 APP_CMD="${APP_CMD:-unknown}"
 
 # Walk descendant tree of XPRA_PID using /proc, breadth-first.
