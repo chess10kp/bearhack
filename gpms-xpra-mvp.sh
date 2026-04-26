@@ -3,19 +3,22 @@ set -euo pipefail
 
 DISPLAY_NUM="${DISPLAY_NUM:-110}"
 DISPLAY_ID=":${DISPLAY_NUM}"
-CHILD_CMD="${CHILD_CMD:-xterm}"
+CHILD_CMD="${CHILD_CMD:-code --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile}"
 WORKDIR="${WORKDIR:-/tmp/gpms-xpra-mvp}"
 LOGDIR="${WORKDIR}/logs"
 TCP_PORT="${TCP_PORT:-14600}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
+START_MODE="${START_MODE:-start}"
+EXIT_WITH_CHILDREN="${EXIT_WITH_CHILDREN:-no}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-60}"
 STARTUP_POLL_SECONDS="${STARTUP_POLL_SECONDS:-1}"
 POST_START_WAIT_SECONDS="${POST_START_WAIT_SECONDS:-0}"
-READY_REQUIRE_WINDOWS="${READY_REQUIRE_WINDOWS:-0}"
+READY_REQUIRE_WINDOWS="${READY_REQUIRE_WINDOWS:-1}"
 ATTACH_SECONDS="${ATTACH_SECONDS:-4}"
 ATTACH_RETRIES="${ATTACH_RETRIES:-2}"
 ATTACH_RETRY_WAIT_SECONDS="${ATTACH_RETRY_WAIT_SECONDS:-1}"
 ATTACH_OPENGL="${ATTACH_OPENGL:-force}"
+CONNECT_URI="tcp://${BIND_ADDR}:${TCP_PORT}/"
 
 mkdir -p "${LOGDIR}"
 
@@ -53,19 +56,19 @@ wait_for_session_ready() {
   echo "[start] waiting up to ${STARTUP_TIMEOUT}s for xpra session to be ready"
 
   while (( waited < STARTUP_TIMEOUT )); do
-    if session_info >"${info_file}" \
-      && grep -q '^command\.0\.pid=' "${info_file}" \
-      && grep -q '^command\.0\.dead=False' "${info_file}"; then
+    if session_info >"${info_file}"; then
+      windows="$(awk -F= '/^state\.windows=/{print $2; exit}' "${info_file}")"
+      windows="${windows:-0}"
       if [[ "${READY_REQUIRE_WINDOWS}" == "1" ]]; then
-        windows="$(awk -F= '/^state\.windows=/{print $2; exit}' "${info_file}")"
-        windows="${windows:-0}"
         if [[ "${windows}" =~ ^[0-9]+$ ]] && (( windows > 0 )); then
           rm -f "${info_file}"
           return 0
         fi
       else
-        rm -f "${info_file}"
-        return 0
+        if grep -q '^command\.[0-9]\+\.dead=False' "${info_file}" || { [[ "${windows}" =~ ^[0-9]+$ ]] && (( windows > 0 )); }; then
+          rm -f "${info_file}"
+          return 0
+        fi
       fi
     fi
     sleep "${STARTUP_POLL_SECONDS}"
@@ -81,20 +84,51 @@ wait_for_session_ready() {
   return 1
 }
 
-get_xterm_pid() {
-  session_info | awk -F= '/command\.0\.pid=/{print $2; exit}'
+get_target_pid() {
+  local info_file pid
+  info_file="${LOGDIR}/pid-${DISPLAY_NUM}.tmp"
+  if ! session_info >"${info_file}"; then
+    rm -f "${info_file}"
+    return 1
+  fi
+
+  while IFS= read -r pid; do
+    if [[ "${pid}" =~ ^[0-9]+$ ]] && ps -p "${pid}" >/dev/null 2>&1; then
+      echo "${pid}"
+      rm -f "${info_file}"
+      return 0
+    fi
+  done < <(awk -F= '/^windows\.[0-9]+\.wm-pid=/{print $2}' "${info_file}")
+
+  while IFS= read -r pid; do
+    if [[ "${pid}" =~ ^[0-9]+$ ]] && ps -p "${pid}" >/dev/null 2>&1; then
+      echo "${pid}"
+      rm -f "${info_file}"
+      return 0
+    fi
+  done < <(awk -F= '/^command\.[0-9]+\.pid=/{print $2}' "${info_file}")
+
+  rm -f "${info_file}"
+  return 1
 }
 
 start_session() {
+  local start_flag
   echo "[start] stopping stale session on ${DISPLAY_ID} (if any)"
   xpra stop "${DISPLAY_ID}" >"${LOGDIR}/stop-${DISPLAY_NUM}.log" 2>&1 || true
   display_paths_cleanup
 
-  echo "[start] starting xpra on ${DISPLAY_ID} with child: ${CHILD_CMD}"
+  if [[ "${START_MODE}" == "start-child" ]]; then
+    start_flag="--start-child=${CHILD_CMD}"
+  else
+    start_flag="--start=${CHILD_CMD}"
+  fi
+
+  echo "[start] starting xpra on ${DISPLAY_ID} with ${START_MODE}: ${CHILD_CMD}"
   xpra start "${DISPLAY_ID}" \
     --daemon=yes \
-    --exit-with-children=yes \
-    --start-child="${CHILD_CMD}" \
+    --exit-with-children="${EXIT_WITH_CHILDREN}" \
+    "${start_flag}" \
     --bind-tcp="${BIND_ADDR}:${TCP_PORT}" \
     --html=on \
     --webcam=no \
@@ -111,14 +145,14 @@ start_session() {
     sleep "${POST_START_WAIT_SECONDS}"
   fi
   echo "[start] session summary:"
-  session_info | egrep 'state.windows|command.0.pid|command.0.dead|clients=' || true
+  session_info | egrep 'state.windows|command.[0-9]+.pid|command.[0-9]+.dead|clients=' || true
   echo "[start] HTML5 client: http://${BIND_ADDR}:${TCP_PORT}/"
-  echo "[start] native attach: xpra attach tcp://${BIND_ADDR}:${TCP_PORT}/ --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no"
+  echo "[start] native attach: xpra attach ${CONNECT_URI} --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no"
 }
 
 status_session() {
   echo "[status] ${DISPLAY_ID}"
-  session_info | egrep 'state.windows|command.0.pid|command.0.dead|clients=' || {
+  session_info | egrep 'state.windows|command.[0-9]+.pid|command.[0-9]+.dead|clients=' || {
     echo "[status] session not reachable" >&2
     exit 1
   }
@@ -129,7 +163,7 @@ attach_once() {
   sec="${1:-${ATTACH_SECONDS}}"
   echo "[attach] connecting for ${sec}s"
   set +e
-  timeout "${sec}"s xpra attach "${DISPLAY_ID}" --opengl="${ATTACH_OPENGL}" --notifications=no --speaker=off --microphone=off --webcam=no \
+  timeout "${sec}"s xpra attach "${CONNECT_URI}" --opengl="${ATTACH_OPENGL}" --notifications=no --speaker=off --microphone=off --webcam=no \
     >"${LOGDIR}/attach-${DISPLAY_NUM}-$(date +%s).log" 2>&1
   rc=$?
   set -e
@@ -175,13 +209,13 @@ resume_test() {
 
 freeze_test() {
   local pid state1 state2
-  pid="$(get_xterm_pid)"
+  pid="$(get_target_pid || true)"
   if [[ -z "${pid}" ]]; then
-    echo "[freeze-test] unable to find child pid" >&2
+    echo "[freeze-test] unable to find target pid" >&2
     exit 1
   fi
 
-  echo "[freeze-test] xterm pid=${pid}"
+  echo "[freeze-test] target pid=${pid}"
   kill -STOP "${pid}"
   sleep 1
   state1="$(ps -o stat= -p "${pid}" | tr -d ' ')"
@@ -210,7 +244,7 @@ full_test() {
 }
 
 usage() {
-  cat <<'EOF'
+  cat <<'USAGE'
 Usage:
   gpms-xpra-mvp.sh start
   gpms-xpra-mvp.sh status
@@ -220,16 +254,17 @@ Usage:
   gpms-xpra-mvp.sh stop
 
 Env overrides:
-  DISPLAY_NUM=110    XPRA display number
-  CHILD_CMD=xterm    Command to launch in xpra session
-  TCP_PORT=14500     Port for HTML5 / TCP client
+  DISPLAY_NUM=110
+  CHILD_CMD='code'
+  START_MODE=start            Use 'start' for apps that daemonize (eg vscode), 'start-child' otherwise
+  EXIT_WITH_CHILDREN=no       Use 'yes' when using start-child and you want server to exit with app
+  TCP_PORT=14600
   BIND_ADDR=127.0.0.1
-  WORKDIR=/tmp/gpms-xpra-mvp
-  ATTACH_OPENGL=force Native attach rendering backend (force/yes/no/auto)
+  ATTACH_OPENGL=force
 
-Connect (HTML5 client - works around broken native client on Debian):
-  Open http://127.0.0.1:14500/ in a browser
-EOF
+Recommended for VSCode:
+  CHILD_CMD='code --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile' START_MODE=start EXIT_WITH_CHILDREN=no ./gpms-xpra-mvp.sh start
+USAGE
 }
 
 main() {
