@@ -33,6 +33,7 @@ CREATE TABLE IF NOT EXISTS sessions (
   memory_percent REAL DEFAULT 0,
   started_at    INTEGER,
   ended_at      INTEGER,
+  xpra_tunnel_pid INTEGER,
   FOREIGN KEY (machine_id) REFERENCES machines(id)
 );
 

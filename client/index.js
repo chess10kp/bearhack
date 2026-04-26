@@ -1,5 +1,6 @@
 #!/usr/bin/env node
-import { Command } from "commander";
+import { spawn } from "node:child_process";
+import { Command, Option } from "commander";
 import dotenv from "dotenv";
 import { config, runStartupChecks } from "./config.js";
 import { runDaemon } from "./daemon.js";
@@ -43,6 +44,90 @@ async function printJsonOrError(r) {
   } catch {
     console.log(t);
   }
+}
+
+/**
+ * @param {string} display e.g. :10
+ * @returns {number}
+ */
+function xpraTcpPortFromDisplay(display) {
+  const s = String(display).replace(/^:/, "");
+  const n = parseInt(s, 10) || 0;
+  const base = Number(process.env.XPRA_BASE_PORT);
+  return (Number.isFinite(base) ? base : 10_000) + n;
+}
+
+/**
+ * @param {string} [d]
+ * @returns {string | null}
+ */
+function normalizeDisplay(d) {
+  if (d == null || d === "") return null;
+  const s = String(d).trim();
+  if (s.startsWith(":")) return s;
+  if (/^\d+$/.test(s)) return `:${s}`;
+  return s.startsWith(":") ? s : `:${s}`;
+}
+
+/**
+ * @param {number} status
+ * @param {string} body
+ */
+function httpErrorBodyText(status, body) {
+  try {
+    const j = JSON.parse(body);
+    if (j && typeof j.error === "string") return j.error;
+  } catch {
+    /* ignore */
+  }
+  return (body && body.trim()) || `HTTP ${status}`;
+}
+
+/**
+ * @param {string} display
+ * @param {string} xpraBin
+ * @returns {Promise<void>}
+ */
+function attachXpraWithSignalForward(display, xpraBin) {
+  return new Promise((_resolve, reject) => {
+    const child = spawn(xpraBin, ["attach", display], { stdio: "inherit" });
+    const forward = (/** @type {NodeJS.Signals} */ sig) => {
+      try {
+        if (!child.killed) child.kill(sig);
+      } catch {
+        /* ignore */
+      }
+    };
+    const onInt = () => {
+      off();
+      forward("SIGINT");
+    };
+    const onTerm = () => {
+      off();
+      forward("SIGTERM");
+    };
+    function off() {
+      process.removeListener("SIGINT", onInt);
+      process.removeListener("SIGTERM", onTerm);
+    }
+    function onStart() {
+      process.on("SIGINT", onInt);
+      process.on("SIGTERM", onTerm);
+    }
+    onStart();
+    child.on("error", (err) => {
+      off();
+      reject(err);
+    });
+    child.on("close", (code, signal) => {
+      off();
+      if (signal) {
+        process.exit(0);
+        return;
+      }
+      process.exit(code ?? 0);
+    });
+  });
 }
 
 program
@@ -152,6 +237,98 @@ program
     } catch (e) {
       console.error((e && e.message) || e);
       process.exit(1);
+    }
+  });
+
+program
+  .command("run <args...>")
+  .description(
+    "Launch a session on the server (POST /api/sessions; does not start the daemon or use CRIU).",
+  )
+  .addOption(
+    new Option("-a, --attach", "run xpra attach after launch").default(true),
+  )
+  .addOption(new Option("--no-attach", "do not run xpra attach"))
+  .option(
+    "-d, --display <n>",
+    "Xpra display number or :N (default: from server; used for xpra attach)",
+  )
+  .allowUnknownOption(true)
+  .action(async (argParts, opts) => {
+    const command = argParts.join(" ").trim();
+    if (!command) {
+      process.stderr.write(
+        "gpms run: command required (e.g. a program name, or a quoted string)\n",
+      );
+      process.exit(1);
+    }
+    const xpraBin = process.env.XPRA_BIN || "/usr/bin/xpra";
+    let r;
+    try {
+      r = await rest("/api/sessions", {
+        method: "POST",
+        body: JSON.stringify({ command }),
+      });
+    } catch (e) {
+      console.error((e && e.message) || e);
+      process.exit(1);
+    }
+    const t = await r.text();
+    if (!r.ok) {
+      process.stderr.write(
+        `HTTP ${r.status}: ${httpErrorBodyText(r.status, t)}\n`,
+      );
+      process.exit(1);
+    }
+    let payload;
+    try {
+      payload = JSON.parse(t);
+    } catch {
+      console.log(t);
+      return;
+    }
+    const sid = String(payload.id || "");
+    let displayFromServer = null;
+    if (sid) {
+      try {
+        const dr = await rest(
+          `/api/sessions/${encodeURIComponent(sid)}/detail`,
+        );
+        if (dr.ok) {
+          const d = await dr.json();
+          if (d.session && d.session.xpra_display) {
+            displayFromServer = d.session.xpra_display;
+          }
+        }
+      } catch {
+        /* best-effort */
+      }
+    }
+    const hasDisplayArg =
+      opts.display != null && String(opts.display).trim() !== "";
+    const display = hasDisplayArg
+      ? normalizeDisplay(/** @type {string} */ (opts.display))
+      : normalizeDisplay(displayFromServer);
+    const xpraPort = display != null ? xpraTcpPortFromDisplay(display) : null;
+    const out = {
+      ...payload,
+      display: display ?? displayFromServer ?? null,
+      xpraPort,
+    };
+    console.log(JSON.stringify(out, null, 2));
+    if (opts.attach) {
+      if (!display) {
+        process.stderr.write(
+          "gpms run: xpra attach requested but no display. GET /api/sessions/.../detail had no xpra_display; pass -d, or use --no-attach.\n",
+        );
+        process.exit(1);
+      }
+      try {
+        await attachXpraWithSignalForward(display, xpraBin);
+      } catch (e) {
+        console.error("xpra attach:", (e && e.message) || e);
+        process.exit(1);
+      }
     }
   });
 
@@ -287,4 +464,9 @@ program
     }
   });
 
-program.parse();
+program
+  .parseAsync()
+  .catch((e) => {
+    console.error(e);
+    process.exit(1);
+  });

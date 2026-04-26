@@ -52,6 +52,19 @@ function migrateMigrationsSolanaColumns() {
 
 migrateMigrationsSolanaColumns();
 
+function sessionColumnNames() {
+  return db.prepare("PRAGMA table_info(sessions)").all().map((r) => r.name);
+}
+
+function ensureSessionColumn(name, ddl) {
+  if (!tableExists("sessions")) return;
+  const cols = sessionColumnNames();
+  if (cols.includes(name)) return;
+  db.exec(`ALTER TABLE sessions ADD COLUMN ${name} ${ddl}`);
+}
+
+ensureSessionColumn("xpra_tunnel_pid", "INTEGER");
+
 /* ——— Sessions ——— */
 
 export function getSession(id) {
@@ -107,6 +120,10 @@ export function updateSession(id, fields) {
 
 export function updateSessionStatus(id, status, extra = {}) {
   updateSession(id, { status, ...extra });
+}
+
+export function deleteSession(id) {
+  db.prepare("DELETE FROM sessions WHERE id = ?").run(id);
 }
 
 /* ——— Machines ——— */

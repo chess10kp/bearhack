@@ -9,7 +9,7 @@ import { S } from "../socket/events.js";
 import { config } from "../config.js";
 import * as criu from "./criu.js";
 import * as transfer from "./transfer.js";
-import { stop as xpraStop } from "./xpra.js";
+import * as xpra from "./xpra.js";
 import { stopPolling } from "./process-monitor.js";
 import { getSolanaConfig, isSettlementEnabled } from "../../solana/config.js";
 import { computeLamports, lamportsToSolDisplay } from "../../solana/pricing.js";
@@ -150,6 +150,46 @@ function parseRestorePid(blob) {
 }
 
 /**
+ * @param {object} machine
+ * @param {number} pid
+ */
+async function remotePidAlive(machine, pid) {
+  if (!pid) return false;
+  const u = transfer.sshUserAtHost(machine);
+  const args = [
+    ...transfer.sshBaseArgs(machine),
+    u,
+    `test -d /proc/${pid} && echo ok`,
+  ];
+  try {
+    const { stdout } = await execFileAsync("ssh", args, {
+      maxBuffer: 4096,
+      timeout: 10_000,
+    });
+    return String(stdout).trim() === "ok";
+  } catch {
+    return false;
+  }
+}
+
+/**
+ * @param {object} machine
+ * @param {number} pid
+ */
+async function remoteSigKillPid(machine, pid) {
+  if (!pid) return;
+  const u = transfer.sshUserAtHost(machine);
+  const args = [
+    ...transfer.sshBaseArgs(machine),
+    u,
+    `kill -9 ${pid} 2>/dev/null; true`,
+  ];
+  await execFileAsync("ssh", args, { maxBuffer: 4096, timeout: 10_000 }).catch(
+    () => {},
+  );
+}
+
+/**
  * @param {string} sessionId
  * @param {string} targetMachineId
  */
@@ -163,6 +203,9 @@ export async function execute(sessionId, targetMachineId) {
   activeMigration = migId;
   const t0 = Date.now();
   let frozenPids = [];
+  let tunnelPid = null;
+  let remoteAppPid = 0;
+  let toM = null;
   const sess0 = db.getSession(sessionId);
   const fromMachineId = sess0 ? sess0.machine_id : null;
   try {
@@ -173,7 +216,7 @@ export async function execute(sessionId, targetMachineId) {
     if (sess.status !== "running" && sess.status !== "hung") {
       throw new Error("session not eligible for migration");
     }
-    const toM = db.getMachine(targetMachineId);
+    toM = db.getMachine(targetMachineId);
     if (!toM) {
       throw new Error("target machine not found");
     }
@@ -226,6 +269,7 @@ export async function execute(sessionId, targetMachineId) {
     try {
       emitProgress(sessionId, toM.label || toM.id, 0, 10);
       await criu.checkpoint(rootP, localCkpt, {
+        leaveRunning: true,
         onStderr: (s) =>
           logL(sessionId, `criu: ${s.slice(0, 200)}`, "info"),
       });
@@ -264,30 +308,14 @@ export async function execute(sessionId, targetMachineId) {
       transfer_seconds: transferSec,
     });
     logL(sessionId, `transferred in ${transferSec.toFixed(1)}s`, "ok");
-    emitProgress(sessionId, toM.label || toM.id, 2, 60);
-    frozenPids = [];
+    emitProgress(sessionId, toM.label || toM.id, 2, 55);
     if (sess.xpra_display) {
       try {
-        await xpraStop(sess.xpra_display);
+        await xpra.stop(sess.xpra_display);
       } catch {
         /* ignore */
       }
     }
-    for (const p of allDescendants(sess.pid)) {
-      try {
-        process.kill(p, "SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }
-    if (sess.pid) {
-      try {
-        process.kill(sess.pid, "SIGKILL");
-      } catch {
-        /* ignore */
-      }
-    }
-    stopPolling(sessionId);
     db.updateSessionStatus(sessionId, "restoring", {});
     const restoreOut = await remoteCriuRestore(toM, remoteCkpt);
     logL(
@@ -295,20 +323,110 @@ export async function execute(sessionId, targetMachineId) {
       `remote restore: ${restoreOut.slice(0, 400)}`,
       "info",
     );
-    const newPid = parseRestorePid(restoreOut) || 0;
-    db.updateSession(sessionId, {
+    remoteAppPid = parseRestorePid(restoreOut) || 0;
+    if (!remoteAppPid) {
+      throw new Error("remote CRIU restore did not report a valid pid");
+    }
+    if (sess.xpra_display) {
+      try {
+        await xpra.startRemote(toM, sess.xpra_display);
+        logL(
+          sessionId,
+          `remote Xpra started for ${sess.xpra_display} (port ${xpra.xpraPortForDisplay(sess.xpra_display)})`,
+          "ok",
+        );
+      } catch (e) {
+        await remoteSigKillPid(toM, remoteAppPid);
+        throw e;
+      }
+      const live = await xpra.waitRemoteDisplayLive(
+        toM,
+        sess.xpra_display,
+        { timeoutMs: 5000 },
+      );
+      if (!live) {
+        logL(
+          sessionId,
+          "remote Xpra display not LIVE within 5s (continuing anyway)",
+          "warn",
+        );
+      }
+      const port = xpra.xpraPortForDisplay(sess.xpra_display);
+      const t = xpra.startTunnel(toM, {
+        localPort: port,
+        remotePort: port,
+      });
+      tunnelPid = t.pid;
+      if (tunnelPid) {
+        logL(
+          sessionId,
+          `SSH Xpra port forward ${port} (tunnel pid ${tunnelPid})`,
+          "ok",
+        );
+      } else {
+        logL(sessionId, "SSH Xpra port forward: no pid (spawn may have failed)", "warn");
+      }
+    }
+    emitProgress(sessionId, toM.label || toM.id, 2, 80);
+    const remoteAlive = await remotePidAlive(toM, remoteAppPid);
+    if (!remoteAlive) {
+      if (tunnelPid) {
+        try {
+          process.kill(tunnelPid, "SIGKILL");
+        } catch {
+          /* ignore */
+        }
+        tunnelPid = null;
+      }
+      if (sess.xpra_display) {
+        await xpra.stopRemote(toM, sess.xpra_display).catch(() => {});
+      }
+      await remoteSigKillPid(toM, remoteAppPid);
+      throw new Error("restored process not found on target host (/proc check)");
+    }
+    stopPolling(sessionId);
+    for (const p of allDescendants(rootP)) {
+      try {
+        process.kill(p, "SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }
+    try {
+      process.kill(rootP, "SIGKILL");
+    } catch {
+      /* ignore */
+    }
+    frozenPids = [];
+    const sessionFields = {
       machine_id: targetMachineId,
-      pid: newPid,
-      xpra_display: null,
+      pid: remoteAppPid,
       status: "running",
-    });
-    emitProgress(sessionId, toM.label || toM.id, 2, 90);
-    emitProgress(sessionId, toM.label || toM.id, 3, 95);
-    logL(
-      sessionId,
-      "reattach xpra on remote (manual) — step complete (demo)",
-      "info",
-    );
+      xpra_tunnel_pid: tunnelPid,
+    };
+    if (sess.xpra_display) {
+      sessionFields.xpra_display = sess.xpra_display;
+    } else {
+      sessionFields.xpra_display = null;
+    }
+    db.updateSession(sessionId, sessionFields);
+    if (sess.xpra_display) {
+      xpra.attachTunnel(toM, sess.xpra_display);
+      logL(
+        sessionId,
+        `Xpra client attach: tcp/127.0.0.1:${xpra.xpraPortForDisplay(sess.xpra_display)}`,
+        "ok",
+      );
+    } else {
+      logL(
+        sessionId,
+        "session had no xpra display; skipped remote xpra, tunnel, and attach",
+        "warn",
+      );
+    }
+    emitProgress(sessionId, toM.label || toM.id, 2, 92);
+    emitProgress(sessionId, toM.label || toM.id, 3, 96);
+    logL(sessionId, "reattach xpra display: complete", "ok");
     const total = (Date.now() - t0) / 1000;
     const solCfg = getSolanaConfig();
     let paymentLamports = 0;
@@ -380,8 +498,39 @@ export async function execute(sessionId, targetMachineId) {
       }
     }
   } catch (err) {
+    if (tunnelPid) {
+      try {
+        process.kill(tunnelPid, "SIGKILL");
+      } catch {
+        /* ignore */
+      }
+    }
+    if (remoteAppPid > 0 && toM) {
+      await remoteSigKillPid(toM, remoteAppPid);
+    }
+    if (toM && sess0 && sess0.xpra_display) {
+      try {
+        await xpra.stopRemote(toM, sess0.xpra_display);
+      } catch {
+        /* ignore */
+      }
+    }
     if (frozenPids.length) {
       thawPids(frozenPids);
+      frozenPids = [];
+      if (db.getSession(sessionId)) {
+        db.updateSessionStatus(sessionId, "running", {});
+      }
+    } else {
+      const cur = db.getSession(sessionId);
+      if (
+        cur &&
+        (cur.status === "migrating" ||
+          cur.status === "checkpointing" ||
+          cur.status === "restoring")
+      ) {
+        db.updateSessionStatus(sessionId, "hung", {});
+      }
     }
     const msg = err && err.message ? err.message : String(err);
     try {
@@ -394,10 +543,6 @@ export async function execute(sessionId, targetMachineId) {
       }
     } catch {
       /* ignore */
-    }
-    const cur = db.getSession(sessionId);
-    if (cur && (cur.status === "migrating" || cur.status === "checkpointing")) {
-      db.updateSessionStatus(sessionId, "hung", {});
     }
     if (getIo()) {
       getIo().emit(S.migrationFailed, {

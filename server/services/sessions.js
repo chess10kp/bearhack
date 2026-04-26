@@ -44,57 +44,91 @@ export async function launchSession(command) {
   const id = `session-${uuidv4()}`;
   const appName = firstToken(command);
   const cname = `lxc-${id.replace(/[^a-z0-9-]/gi, "-").slice(0, 32)}`;
-  const { name: cId } = await lxc.createContainer(cname, {});
-  await lxc.startContainer(cId);
-  const display = await xpra.findFreeDisplay();
-  const { port } = await xpra.startSession(display, {});
-  db.insertSession({
-    id,
-    machine_id: config.localMachineId,
-    command,
-    app_name: appName,
-    status: "starting",
-    xpra_display: display,
-    container_id: cId,
-  });
-  const env = {
-    ...process.env,
-    DISPLAY: display,
-  };
-  const child = spawn("sh", ["-c", command], {
-    env,
-    detached: false,
-    stdio: "ignore",
-  });
-  if (!child.pid) {
-    throw new Error("failed to spawn session command");
-  }
-  db.updateSession(id, { pid: child.pid, status: "running" });
-  const thr = parseInt(
-    db.getSetting("hang_threshold_seconds") || "30",
-    10,
-  );
-  hang.start(id, thr);
-  const m = db.getMachine(config.localMachineId);
-  if (m && (m.is_local === 1 || m.is_local === true)) {
-    const poll = parseInt(
-      db.getSetting("poll_interval_ms") || String(config.pollIntervalMs),
+  let cId;
+  let display;
+  let xpraStarted = false;
+  let dbInserted = false;
+
+  try {
+    const { name } = await lxc.createContainer(cname, {});
+    cId = name;
+    await lxc.startContainer(cId);
+    display = await xpra.findFreeDisplay();
+    await xpra.startSession(display, {});
+    xpraStarted = true;
+    db.insertSession({
+      id,
+      machine_id: config.localMachineId,
+      command,
+      app_name: appName,
+      status: "starting",
+      xpra_display: display,
+      container_id: cId,
+    });
+    dbInserted = true;
+    const env = {
+      ...process.env,
+      DISPLAY: display,
+    };
+    const child = spawn("sh", ["-c", command], {
+      env,
+      detached: false,
+      stdio: "ignore",
+    });
+    if (!child.pid) {
+      throw new Error("failed to spawn session command");
+    }
+    db.updateSession(id, { pid: child.pid, status: "running" });
+    const thr = parseInt(
+      db.getSetting("hang_threshold_seconds") || "30",
       10,
     );
-    monitor.startPolling(
-      id,
-      child.pid,
-      Number.isFinite(poll) ? poll : config.pollIntervalMs,
-    );
+    hang.start(id, thr);
+    const m = db.getMachine(config.localMachineId);
+    if (m && (m.is_local === 1 || m.is_local === true)) {
+      const poll = parseInt(
+        db.getSetting("poll_interval_ms") || String(config.pollIntervalMs),
+        10,
+      );
+      monitor.startPolling(
+        id,
+        child.pid,
+        Number.isFinite(poll) ? poll : config.pollIntervalMs,
+      );
+    }
+    const row = db.getSession(id);
+    if (getIo()) {
+      getIo().emit(
+        S.sessionCreated,
+        sessionToPayload(row),
+      );
+    }
+    return row;
+  } catch (err) {
+    try {
+      if (xpraStarted && display) {
+        await xpra.stop(display);
+      }
+    } catch {
+      /* best-effort */
+    }
+    try {
+      if (cId) {
+        await lxc.stopContainer(cId);
+        await lxc.destroyContainer(cId);
+      }
+    } catch {
+      /* best-effort */
+    }
+    if (dbInserted) {
+      try {
+        db.deleteSession(id);
+      } catch {
+        /* best-effort */
+      }
+    }
+    throw err;
   }
-  const row = db.getSession(id);
-  if (getIo()) {
-    getIo().emit(
-      S.sessionCreated,
-      sessionToPayload(row),
-    );
-  }
-  return row;
 }
 
 export function killSession(sessionId) {
@@ -104,8 +138,20 @@ export function killSession(sessionId) {
   }
   hang.stop(sessionId);
   monitor.stopPolling(sessionId);
+  const m = db.getMachine(s.machine_id);
   if (s.xpra_display) {
-    xpra.stop(s.xpra_display).catch(() => {});
+    if (m && !(m.is_local === 1 || m.is_local === true)) {
+      xpra.stopRemote(m, s.xpra_display).catch(() => {});
+    } else {
+      xpra.stop(s.xpra_display).catch(() => {});
+    }
+  }
+  if (s.xpra_tunnel_pid) {
+    try {
+      process.kill(s.xpra_tunnel_pid, "SIGTERM");
+    } catch {
+      /* ignore */
+    }
   }
   if (s.pid) {
     try {
