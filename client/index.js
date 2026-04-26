@@ -467,6 +467,57 @@ program
   });
 
 program
+  .command("migrate-live")
+  .description(
+    "Live-migrate a process tree to a remote worker via CRIU page-server pre-copy",
+  )
+  .requiredOption("--pid <pid>", "root pid to migrate", (v) => parseInt(v, 10))
+  .requiredOption(
+    "--worker <url>",
+    "worker base url, e.g. http://machine-b:3400",
+  )
+  .requiredOption("--page-host <host>", "page-server host reachable from this machine")
+  .option("--page-port <port>", "page-server tcp port", (v) => parseInt(v, 10), 1234)
+  .option("--migration-id <id>", "migration id (defaults to mig-<ts>)")
+  .option("--iterations <n>", "pre-copy rounds incl. final dump", (v) => parseInt(v, 10), 3)
+  .option("--token <token>", "worker bearer token")
+  .option("--fallback", "skip page-server, use local dump + tar upload")
+  .action(async (opts) => {
+    const { preCopyMigrate, fallbackTarMigrate } = await import(
+      "./services/precopy.js"
+    );
+    const target = {
+      workerUrl: String(opts.worker).replace(/\/$/, ""),
+      pageHost: String(opts.pageHost),
+      pagePort: Number(opts.pagePort),
+      token: opts.token ? String(opts.token) : "",
+    };
+    const migrationId = String(opts.migrationId || `mig-${Date.now()}`);
+    const onProgress = (e) =>
+      process.stderr.write(`[migrate-live] ${JSON.stringify(e)}\n`);
+    try {
+      const r = opts.fallback
+        ? await fallbackTarMigrate({
+            pid: opts.pid,
+            migrationId,
+            target,
+            onProgress,
+          })
+        : await preCopyMigrate({
+            pid: opts.pid,
+            migrationId,
+            target,
+            iterations: opts.iterations,
+            onProgress,
+          });
+      console.log(JSON.stringify(r, null, 2));
+    } catch (e) {
+      console.error((e && e.message) || e);
+      process.exit(1);
+    }
+  });
+
+program
   .parseAsync()
   .catch((e) => {
     console.error(e);
