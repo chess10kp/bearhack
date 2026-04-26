@@ -121,6 +121,7 @@ function wireSocketHandlers(s) {
     const sid = p && (p.sessionId || p.id);
     if (sid) {
       state.clearActiveMigration(String(sid));
+      state.clearGemmaDecision();
       const sess = state.getState().sessions[String(sid)];
       if (sess) {
         state.upsertSession({ ...sess, status: "running", health: "ok" });
@@ -161,6 +162,7 @@ function wireSocketHandlers(s) {
     const sid = p && (p.sessionId || p.id);
     if (sid) {
       state.clearActiveMigration(String(sid));
+      state.clearGemmaDecision();
       const sess = state.getState().sessions[String(sid)];
       if (sess) {
         state.upsertSession({ ...sess, status: "hung", health: "danger" });
@@ -199,6 +201,18 @@ function wireSocketHandlers(s) {
               ? "ok"
               : "info";
       state.appendLog(entry.message, /** @type {'ok'|'warn'|'err'|'info'} */ (cls));
+    }
+  });
+
+  s.on("gemma:status", (p) => {
+    if (p) state.setGemmaStatus(p);
+  });
+  s.on("gemma:decision", (p) => {
+    if (p) {
+      state.setGemmaDecision(p);
+      const d = p.decision || "unknown";
+      const r = p.reason || "";
+      state.appendLog(`gemma · ${d} — ${r}`, d === "MIGRATE" ? "ok" : "warn");
     }
   });
 }

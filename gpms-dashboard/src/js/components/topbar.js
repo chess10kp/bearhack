@@ -22,6 +22,7 @@ async function loadTauriInfoOnce() {
 
 export function mountTopbar() {
   const root = document.getElementById("topbarRight");
+  const footerMeta = document.getElementById("footerMeta");
   if (!root) return;
 
   let booted = false;
@@ -42,6 +43,15 @@ export function mountTopbar() {
     const host =
       tauriInfo.hostname || (isMock ? "mock" : "—");
     const kernel = tauriInfo.kernel || (isMock ? "—" : "—");
+    let apiHost = "—";
+    try {
+      apiHost = new URL(s.serverUrl || "http://localhost:3000").host;
+    } catch {
+      apiHost = "—";
+    }
+    if (footerMeta) {
+      footerMeta.textContent = `LOC: ${host} // API: ${apiHost}`;
+    }
 
     if (!booted) {
       booted = true;
@@ -51,7 +61,7 @@ export function mountTopbar() {
     }
 
     root.innerHTML = `
-      <button type="button" class="action-btn" id="settingsOpenBtn" title="Settings" aria-label="Open settings">⚙</button>
+      <button type="button" class="action-btn action-btn--icon" id="settingsOpenBtn" title="Settings" aria-label="Open settings"><span class="material-symbols-outlined" aria-hidden="true">settings</span></button>
       <div class="badge ${escapeHtml(connClass)}" id="connectionBadge">
         ${escapeHtml(connText)}
       </div>

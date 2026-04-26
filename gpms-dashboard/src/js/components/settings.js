@@ -14,6 +14,10 @@ function readForm() {
     xpra_webcam: document.getElementById("setXpraWebcam")?.checked ? "on" : "off",
     xpra_pulseaudio: document.getElementById("setXpraAudio")?.checked ? "on" : "off",
     xpra_notifications: document.getElementById("setXpraNotif")?.checked ? "on" : "off",
+    gemma_mock: document.getElementById("setGemmaMock")?.checked ? "true" : "false",
+    gemma_api_key: document.getElementById("setGemmaKey")?.value || "",
+    gemma_model: document.getElementById("setGemmaModel")?.value || "gemma-3-27b-it",
+    gemma_timeout_ms: String(Number(document.getElementById("setGemmaTimeout")?.value || 10000)),
   };
 }
 
@@ -77,6 +81,23 @@ export function mountSettings() {
         <input type="checkbox" id="setXpraNotif" ${xpraNotif ? "checked" : ""} />
         <span>Desktop notifications</span>
       </label>
+      <div class="settings-section-title">Gemma AI Decision Engine</div>
+      <label class="settings-field settings-row">
+        <input type="checkbox" id="setGemmaMock" ${st.gemma_mock !== "false" ? "checked" : ""} />
+        <span>Mock mode (canned responses)</span>
+      </label>
+      <label class="settings-field">
+        <span>Gemma API key</span>
+        <input type="password" id="setGemmaKey" placeholder="AIza..." value="${escapeHtml(st.gemma_api_key || "")}" />
+      </label>
+      <label class="settings-field">
+        <span>Gemma model</span>
+        <input type="text" id="setGemmaModel" value="${escapeHtml(st.gemma_model || "gemma-3-27b-it")}" />
+      </label>
+      <label class="settings-field">
+        <span>API timeout (ms)</span>
+        <input type="number" id="setGemmaTimeout" min="2000" max="60000" value="${escapeHtml(String(st.gemma_timeout_ms || 10000))}" />
+      </label>
       <div class="settings-actions">
         <button type="button" class="action-btn primary" id="settingsSave">Save</button>
       </div>
@@ -102,6 +123,10 @@ export function mountSettings() {
   };
 
   window.addEventListener("gpms:open-settings", open);
+  document.getElementById("sidenavConfig")?.addEventListener("click", (e) => {
+    e.preventDefault();
+    open();
+  });
   backdrop.addEventListener("click", close);
 
   const run = async () => {

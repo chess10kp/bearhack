@@ -28,6 +28,8 @@ const initial = {
   inspectorLoading: false,
   migrationsToday: 0,
   useMock: false,
+  gemmaDecision: null,
+  gemmaStatus: null,
   /** @type {string} */
   solanaCluster: "devnet",
 };
@@ -218,6 +220,21 @@ export function upsertMachine(m) {
 export function setMigrationsToday(n) {
   const migrationsToday = Number(n) || 0;
   state = { ...state, migrationsToday };
+  notify();
+}
+
+export function setGemmaDecision(decision) {
+  state = { ...state, gemmaDecision: decision };
+  notify();
+}
+
+export function setGemmaStatus(status) {
+  state = { ...state, gemmaStatus: status };
+  notify();
+}
+
+export function clearGemmaDecision() {
+  state = { ...state, gemmaDecision: null, gemmaStatus: null };
   notify();
 }
 

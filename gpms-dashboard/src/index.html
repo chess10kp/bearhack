@@ -1,23 +1,71 @@
 <!doctype html>
-<html lang="en">
+<html class="gpms-console" lang="en">
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>GPMS Dashboard</title>
+    <title>GPMS Console — Dashboard</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link
+      href="https://fonts.googleapis.com/css2?family=DM+Mono:wght@400;500&family=Space+Grotesk:wght@400;500;600;700;800;900&display=swap"
+      rel="stylesheet"
+    />
+    <link
+      href="https://fonts.googleapis.com/css2?family=Material+Symbols+Outlined:opsz,wght,FILL,GRAD@24,400,0,0"
+      rel="stylesheet"
+    />
     <link rel="stylesheet" href="css/index.css" />
   </head>
   <body>
-    <div class="scanline"></div>
-    <div class="app" id="app">
-      <header class="topbar" id="topbar">
-        <div class="logo">
-          <div class="logo-dot"></div>
-          gpms
+    <header class="topbar" id="topbar">
+      <div class="topbar-brand">
+        <div class="logo">GPMS Console</div>
+        <div class="topbar-search" aria-hidden="true">
+          <span class="material-symbols-outlined topbar-search-icon">search</span>
+          <input
+            type="search"
+            class="topbar-search-input"
+            placeholder="Query system nodes…"
+            tabindex="-1"
+            readonly
+          />
         </div>
-        <div class="topbar-right" id="topbarRight"></div>
-      </header>
+      </div>
+      <div class="topbar-right" id="topbarRight"></div>
+    </header>
 
-      <div class="hero" id="hero">
+    <aside class="sidenav" aria-label="Section navigation">
+      <div class="sidenav-head">
+        <h2 class="sidenav-title">System Operations</h2>
+        <p class="sidenav-version">v0.42-beta</p>
+      </div>
+      <nav class="sidenav-nav">
+        <a class="sidenav-link" href="#hero">
+          <span class="material-symbols-outlined" aria-hidden="true">dashboard</span>
+          Overview
+        </a>
+        <a class="sidenav-link" href="#sessionsSection">
+          <span class="material-symbols-outlined" aria-hidden="true">terminal</span>
+          Sessions
+        </a>
+        <a class="sidenav-link" href="#migrationHistorySection">
+          <span class="material-symbols-outlined" aria-hidden="true">history</span>
+          History
+        </a>
+        <a class="sidenav-link" href="#machinesSection">
+          <span class="material-symbols-outlined" aria-hidden="true">router</span>
+          Nodes
+        </a>
+        <a class="sidenav-link" href="#" id="sidenavConfig">
+          <span class="material-symbols-outlined" aria-hidden="true">settings</span>
+          Config
+        </a>
+      </nav>
+    </aside>
+
+    <div class="app" id="app">
+
+      <div class="hero" id="hero" tabindex="-1">
         <div>
           <div class="hero-title">Session<br /><span>Control.</span></div>
           <div class="hero-sub">
@@ -47,17 +95,18 @@
         </div>
       </div>
 
-      <div class="section" style="margin-top: 1.5rem" id="sessionsSection">
+      <div class="section" id="sessionsSection">
         <div class="section-header">
           <div class="section-title">sessions</div>
           <div class="section-line"></div>
         </div>
         <div class="sessions" id="sessionsRoot"></div>
         <div id="migrationPanelSlot"></div>
+        <div id="gemmaCardSlot"></div>
         <div id="inspectorRoot"></div>
       </div>
 
-      <div class="section" style="margin-top: 1.5rem" id="machinesSection">
+      <div class="section" id="machinesSection">
         <div class="section-header">
           <div class="section-title">remote machines</div>
           <div class="section-line"></div>
@@ -65,7 +114,7 @@
         <div id="machinesRoot" class="machine-grid"></div>
       </div>
 
-      <div class="section" style="margin-top: 1.5rem" id="migrationHistorySection">
+      <div class="section" id="migrationHistorySection">
         <div class="section-header">
           <div class="section-title">migration history</div>
           <div class="section-line"></div>
@@ -73,7 +122,7 @@
         <div id="migrationHistoryRoot"></div>
       </div>
 
-      <div class="section" style="margin-top: 1.5rem" id="logSection">
+      <div class="section" id="logSection">
         <div class="section-header">
           <div class="section-title">system log</div>
           <div class="section-line"></div>
@@ -81,6 +130,19 @@
         <div class="log-panel" id="logPanel"></div>
       </div>
     </div>
+
+    <footer class="app-footer">
+      <div class="app-footer-left">
+        <span class="app-footer-health">System health: nominal</span>
+        <span class="app-footer-pulse" aria-hidden="true"></span>
+      </div>
+      <div class="app-footer-mid">
+        <a class="app-footer-link" href="#logSection">Logs</a>
+        <a class="app-footer-link app-footer-link--accent" href="#machinesSection">Network</a>
+        <a class="app-footer-link" href="#launchSection">Terminal</a>
+      </div>
+      <div class="app-footer-right" id="footerMeta"></div>
+    </footer>
 
     <div
       class="settings-backdrop"

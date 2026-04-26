@@ -17,6 +17,7 @@ CRIU_BIN="${CRIU_BIN:-/usr/sbin/criu}"
 WORKDIR="${WORKDIR:-/tmp/gpms-croc}"
 CODE="${CODE:-gpms-bearhack-demo}"
 RESTORE_TIMEOUT="${RESTORE_TIMEOUT:-60}"
+SHELL_JOB="${SHELL_JOB:-no}"   # set to yes only if target has a controlling TTY
 
 mkdir -p "${WORKDIR}"
 
@@ -60,9 +61,10 @@ dump_and_send() {
   rm -rf "${dir}"
   mkdir -p "${dir}"
 
-  echo "[send] dump migration=${id} pid=${pid} -> ${dir}"
-  local args=(dump -t "${pid}" -D "${dir}" --shell-job
+  echo "[send] dump migration=${id} pid=${pid} -> ${dir} (shell-job=${SHELL_JOB})"
+  local args=(dump -t "${pid}" -D "${dir}"
               --log-file dump.log -v4)
+  [[ "${SHELL_JOB}" == "yes" ]] && args+=(--shell-job)
   [[ "${leave_running}" == "yes" ]] && args+=(--leave-running)
 
   local t0 t1
@@ -112,10 +114,11 @@ receive_and_restore() {
   sudo tar --use-compress-program=zstd -xf "${tar}" -C "${WORKDIR}"
   echo "[recv] extracted -> ${dir}"
 
-  echo "[recv] criu restore (detached)"
+  echo "[recv] criu restore (detached, shell-job=${SHELL_JOB})"
   # Detach so the restored process outlives this script.
-  sudo setsid -f "${CRIU_BIN}" restore -D "${dir}" --shell-job \
-    --log-file restore.log -v4 \
+  local restore_args=(restore -D "${dir}" --log-file restore.log -v4)
+  [[ "${SHELL_JOB}" == "yes" ]] && restore_args+=(--shell-job)
+  sudo setsid -f "${CRIU_BIN}" "${restore_args[@]}" \
     </dev/null >/dev/null 2>&1 &
   disown || true
 

@@ -210,6 +210,7 @@ export function mockMigrate(sessionId, target = "machine-b") {
       const idx = timers.indexOf(tick);
       if (idx >= 0) timers.splice(idx, 1);
       state.clearActiveMigration(sessionId);
+      state.clearGemmaDecision();
       state.upsertSession({
         ...s,
         id: sessionId,
@@ -280,6 +281,18 @@ export function mockSessionHung(sessionId = "session-002") {
   if (s) {
     state.upsertSession({ ...s, id: sessionId, status: "hung", health: "danger" });
     state.appendLog(`${sessionId} · hang detector triggered (mock)`, "warn");
+    state.setGemmaStatus({ sessionId, status: "classifying" });
+    setTimeout(() => {
+      state.setGemmaDecision({
+        sessionId,
+        decision: "MIGRATE",
+        reason: `Blender render detected as heavy. Sending to Vultr T4 GPU node. Estimated time: 47s.`,
+        target_spec: "gpu",
+        priority: 9,
+        estimated_time_sec: 47,
+        source: "mock",
+      });
+    }, 800);
   }
 }
 

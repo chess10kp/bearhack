@@ -12,6 +12,7 @@ import { mountMachines } from "./components/machines.js";
 import { mountInspector } from "./components/inspector.js";
 import { mountSettings } from "./components/settings.js";
 import { mountHistory } from "./components/history.js";
+import { mountGemmaCard } from "./components/gemma.js";
 
 function mount() {
   mountTopbar();
@@ -19,6 +20,7 @@ function mount() {
   mountLaunch();
   mountSessions();
   mountMigration();
+  mountGemmaCard();
   mountLog();
   mountMachines();
   mountInspector();

@@ -68,7 +68,7 @@ export function mountHistory() {
             <span class="history-mono">${escapeHtml(r.sessionId || r.id || "—")}</span>
             <span class="history-mono">${escapeHtml(fmtTs(r.startedAt))}</span>
             <span class="history-mono">${escapeHtml(dur)}</span>
-            <span class="history-mono" style="color: ${ok ? "var(--accent)" : "var(--danger)"}">${ok ? "ok" : "fail"}</span>
+            <span class="history-mono" style="color: ${ok ? "var(--secondary)" : "var(--danger)"}">${ok ? "ok" : "fail"}</span>
             <span class="history-mono">${escapeHtml(transport)}</span>
             <span class="history-mono">${escapeHtml(r.cost != null ? String(r.cost) : "—")}</span>
             <span class="history-mono">${escapeHtml(dcp)}${dcpActions}</span>
