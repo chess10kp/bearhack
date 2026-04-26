@@ -18,6 +18,7 @@ ATTACH_SECONDS="${ATTACH_SECONDS:-4}"
 ATTACH_RETRIES="${ATTACH_RETRIES:-2}"
 ATTACH_RETRY_WAIT_SECONDS="${ATTACH_RETRY_WAIT_SECONDS:-1}"
 ATTACH_OPENGL="${ATTACH_OPENGL:-force}"
+ATTACH_RECONNECT="${ATTACH_RECONNECT:-no}"
 CONNECT_URI="tcp://${BIND_ADDR}:${TCP_PORT}/"
 XVFB_CMD="${XVFB_CMD:-Xvfb -screen 0 1920x1080x24 +extension GLX +extension RANDR +extension RENDER +extension Composite -extension DOUBLE-BUFFER -extension MIT-SHM -nolisten tcp -noreset -auth ${XAUTHORITY:-$HOME/.Xauthority}}"
 
@@ -208,7 +209,7 @@ start_session() {
   echo "[start] session summary:"
   session_info | egrep 'state.windows|command.[0-9]+.pid|command.[0-9]+.dead|clients=' || true
   echo "[start] HTML5 client: http://${BIND_ADDR}:${TCP_PORT}/"
-  echo "[start] native attach: xpra attach ${CONNECT_URI} --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no"
+  echo "[start] native attach: xpra attach ${CONNECT_URI} --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no --printing=no --reconnect=${ATTACH_RECONNECT}"
 }
 
 status_session() {
@@ -224,7 +225,7 @@ attach_once() {
   sec="${1:-${ATTACH_SECONDS}}"
   echo "[attach] connecting for ${sec}s"
   set +e
-  timeout "${sec}"s xpra attach "${CONNECT_URI}" --opengl="${ATTACH_OPENGL}" --notifications=no --speaker=off --microphone=off --webcam=no \
+  timeout "${sec}"s xpra attach "${CONNECT_URI}" --opengl="${ATTACH_OPENGL}" --notifications=no --speaker=off --microphone=off --webcam=no --printing=no --reconnect="${ATTACH_RECONNECT}" \
     >"${LOGDIR}/attach-${DISPLAY_NUM}-$(date +%s).log" 2>&1
   rc=$?
   set -e
@@ -323,6 +324,7 @@ Env overrides:
   TCP_PORT=14600
   BIND_ADDR=127.0.0.1
   ATTACH_OPENGL=force
+  ATTACH_RECONNECT=no
   XVFB_CMD='Xvfb ... -extension MIT-SHM ...'
 
 Recommended for GIMP:

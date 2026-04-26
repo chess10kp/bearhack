@@ -317,7 +317,7 @@ do_criu_restore() {
 
   echo "[resume] done"
   echo "[resume] restore log: ${DIR}/restore.log"
-  echo "[resume] attach: xpra attach ${CONNECT_URI} --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no"
+  echo "[resume] attach: xpra attach ${CONNECT_URI} --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no --printing=no --reconnect=no"
 }
 
 case "${MODE}" in

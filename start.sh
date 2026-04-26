@@ -1,1 +1,1 @@
-DISPLAY_NUM=120 TCP_PORT=14610 CHILD_CMD='gimp ~/picture.png' ./gpms-xpra-mvp.sh start
+DISPLAY_NUM=120 TCP_PORT=14610 CHILD_CMD='gimp /home/picture.png' ./gpms-xpra-mvp.sh start

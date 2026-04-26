@@ -388,6 +388,11 @@ META
         echo "[suspend] hint: use MODE=freeze (default) for real suspend." >&2
       elif run_as_root grep -q "Can't dump half of stream unix connection" "${dir}/dump.log"; then
         echo "[suspend] hint: unix stream peer outside checkpoint tree." >&2
+      elif run_as_root grep -q "Can't dump nested pid namespace" "${dir}/dump.log"; then
+        echo "[suspend] hint: nested pid namespace detected (often bwrap/glycin helper processes)." >&2
+        echo "[suspend] hint: close image preview/helper workers, then retry checkpoint with no attached clients." >&2
+        echo "[suspend] hint: if needed, stop glycin helpers before dump:" >&2
+        echo "[suspend]       pkill -f glycin-image-rs; pkill -f 'bwrap .*glycin-image-rs'" >&2
       elif run_as_root grep -q 'anon_inode:\[io_uring\]' "${dir}/dump.log"; then
         echo "[suspend] hint: io_uring mappings present; set kernel.io_uring_disabled=2 first." >&2
       fi
