@@ -1,33 +1,41 @@
 # GridLock — Product Requirements Document
 
-**Version 2.0 — Checkpoint Migration for Program Continuity**
+**Version 3.0 — Workflow Continuity via Isolated Workers + Optional Settlement**
 
 ---
 
 ## What GridLock Actually Is
 
-GridLock is a system that intercepts a hanging or resource-starved process, snapshots its exact execution state using CRIU (Checkpoint/Restore In Userspace), migrates that snapshot to a remote machine with more compute headroom via DCP, lets the remote machine complete the stalled computation, then sends the restored state back to the user's machine — where the program resumes as if it had never frozen at all.
+GridLock protects your development workflow by isolating heavy jobs — compilers, bundlers, test suites, data processors, renderers — from your editor session, and running them on other machines that would otherwise be idle. When a build crashes or hangs, you resume from where it left off, not from scratch.
 
-The user sees: their program was slow, then it wasn't. Nothing else.
+The core mechanism is a **coordinator service** that dispatches tasks to sandboxed workers on any reachable host, plus **crash-safe logging and artifact snapshots** that preserve useful state after partial failure. Optional Solana integration adds verifiable provenance and micropayments for worker time.
 
-Under the hood: a checkpoint was taken, migrated, resolved remotely, and returned.
+The user sees: their build crashed, and then it didn't. Progress preserved, editor session stable.
 
 ---
 
 ## The Problem GridLock Solves
 
-Your code editor freezes when you're rendering a 3D scene. Your ML training job stalls because your laptop thermal-throttled at 30% CPU. Chrome tabs go unresponsive because the AdBlocker is doing regex on 800 open tabs and your 4-year-old laptop has 8GB RAM. These aren't bugs. These are **resource mismatches** — the program is correct, your hardware is inadequate for the moment.
+Your Gradle build crashes at 90% and takes your editor session with it. Your video export hangs at the last frame. Your test suite times out on a flaky module and you have to re-run the whole thing. These aren't bugs — they're **workflow failures** where the program is correct but the moment defeated it.
 
 Current solutions:
 - Buy better hardware (expensive, permanent)
-- Kill and restart the program (lose state, lose work)
+- Kill and restart the program (lose progress, lose state)
 - Cloud VMs (provisioning latency, manual, expensive)
 
-GridLock is: **your program's escape hatch to someone else's hardware, invisibly, in real-time.**
+GridLock is: **builds and jobs that run on other machines, with crash recovery and resume support — so your editor session never pays the price.**
 
 ---
 
-## The Technical Flow
+## Inspiration
+
+As Android developers, we've run into this more times than we wanted: kick off a long Gradle build, something crashes halfway through, and your editor session is gone with it. GridLock came from that frustration.
+
+The problem isn't limited to compilers — video editors, image processors, long-running test suites, bundlers, and custom data jobs can all peg the CPU, freeze the UI, or crash the process that launched them, often at the worst possible moment when you've been heads-down for hours without a clean save or checkpoint.
+
+---
+
+## How We Built It
 
 ```
 [User Program]            [GridLock Client]         [Gemma Local Agent]
@@ -208,10 +216,11 @@ GridLock Job Structure (DCP):
 
 ```
 gridlock/
-├── server/          # Master server (Express + Socket.IO + SQLite)
-├── client/          # GridLock Client daemon (Node.js + CRIU + Ollama)
-├── worker/          # GridLock Worker daemon (runs on remote nodes)
-├── dashboard/       # Master visualization dashboard (React)
+├── server/          # Coordinator service (Express + Socket.IO + SQLite)
+├── client/          # GridLock Client daemon (Node.js + Ollama + Solana)
+├── worker/          # GridLock Worker daemon (isolated build execution)
+├── gpms-*.sh       # xpra + CRIU workflow scripts (MVP checkpoint/suspend/resume)
+├── dashboard/       # Live visualization dashboard (React)
 ├── anchor/          # Home PC daemon (always-on fallback node)
 └── dcp-work/       # DCP work function packages
 ```
@@ -222,15 +231,14 @@ gridlock/
 
 | Layer | Technology | Why |
 |-------|------------|-----|
-| Process freeze detection | `psutil` (Python) or `procfs` (Node) | Access per-process CPU, memory, I/O metrics |
-| Checkpoint/restore | `criu` CLI | Linux-native process checkpoint — serializes full process state |
+| Worker isolation | Sandboxed containers/processes | Isolates build jobs from the editor failure domain |
+| Crash-safe state | Log snapshots + artifact persistence | Enables resume, not restart after failure |
 | Distributed transport | DCP (`dcp-client`) | Handles node discovery, job distribution, result return |
 | Local decision model | Gemma 3 2B via Ollama | Runs locally on client machine, no cloud latency for decisions |
-| Remote decision model | Gemma 3 2B via Ollama | Same model on worker for completion detection |
 | Payments | Solana | Sub-second finality, sub-cent micropayments |
-| Coordination server | Node.js + Express + Socket.IO | Real-time pipeline visualization |
+| Coordination server | Node.js + Express + Socket.IO | Job dispatch, worker registry, real-time pipeline visualization |
 | Database | SQLite | Node registry, job history, settlement ledger |
-| Dashboard | React + Tailwind + Socket.IO client | Live migration pipeline view |
+| Dashboard | React + Tailwind + Socket.IO client | Live pipeline view |
 
 ---
 
@@ -276,24 +284,22 @@ gridlock/
 ## Constraints and Scope for 36 Hours
 
 **Must have for demo:**
-- Laptop with a "frozen" program (simulated with a CPU-bound loop that triggers thermal throttle or timeout)
-- CRIU dump of that process on the same machine (or container)
-- Transfer to Vultr GPU worker via DCP
-- Worker runs a computation completion (actual or simulated render)
-- Checkpoint return and CRIU restore on original machine
-- Dashboard showing the full pipeline in real-time
-- Solana transaction confirming payment for compute
+- Coordinator service dispatching a build task to a sandboxed worker on another host
+- Crash-safe logging + artifact snapshots that survive a worker crash
+- Resume from last checkpoint after worker failure (not a full restart)
+- Dashboard showing pipeline status and worker output in real-time
+- Optional: Solana tx confirming payment for compute time
 
 **Can simplify:**
-- DCP job as a black box — don't implement full marketplace, just point-to-point transfer
-- Gemma decision as a single classification call — not a continuous monitoring loop
-- CRIU limitations: run inside Docker container on Linux for portability; some process types (nested namespaces, specific kernel features) won't checkpoint cleanly
+- DCP as a black box for job distribution — point-to-point transfer is fine
 - Solana on Devnet only — no mainnet
+- Gemma decision as a single classification call — not a continuous monitoring loop
+- Worker isolation: containerized or process-sandboxed on a reachable host
 
 **Must avoid:**
-- Attempting to migrate GUI programs across different OSes (CRIU Linux-to-Linux only)
-- Making the demo about debugging CRIU failures (keep it simple)
+- Making the demo about debugging worker failures (keep it simple)
 - Full wallet UI — just show the Solana tx hash in the dashboard
+- Implying cross-OS migration (workers must be Linux-to-Linux)
 
 ---
 
@@ -355,3 +361,23 @@ gridlock-dashboard
 3. A Solana transaction hash is visible confirming compute payment
 4. Total elapsed time from freeze detection to resume: under 90 seconds
 5. At least one judge says "how does CRIU even work" out loud
+
+---
+
+## What We Learned
+
+- Reliability features feel invisible until they fail — then they're everything
+- Developer experience is as much about recovery speed as raw build speed
+- Good observability (structured logs + status signals) is non-negotiable
+- Designing for failure paths early dramatically improves product quality
+- Treating "where the work runs" as separate from "where you think" turns a bad afternoon into a recoverable blip
+
+---
+
+## What's Next for GridLock
+
+- **IDE plugins** — Android Studio first, with one-click integration
+- **Build analytics dashboard** — failure patterns, flaky modules, and MTTR
+- **Easier idle machine onboarding** — pairing, quotas, and "only when idle" rules for home, lab, and office
+- **Solana worker marketplace** — verifiable job records, artifact timestamps, and micropayment support for third-party and volunteer workers
+- **Team features** — shared cache strategy, incident history, and policy controls

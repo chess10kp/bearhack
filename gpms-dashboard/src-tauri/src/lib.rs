@@ -74,6 +74,42 @@ mod commands {
     pub fn read_config(path: String) -> Result<String, String> {
         std::fs::read_to_string(&path).map_err(|e| e.to_string())
     }
+
+    #[tauri::command]
+    pub fn script_start() -> Result<String, String> {
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/start.sh")
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[tauri::command]
+    pub fn script_watch() -> Result<String, String> {
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/watch.sh")
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[tauri::command]
+    pub fn script_suspend() -> Result<String, String> {
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/suspend.sh")
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[tauri::command]
+    pub fn script_resume() -> Result<String, String> {
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/resume.sh")
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -82,7 +118,11 @@ pub fn run() {
         .invoke_handler(tauri::generate_handler![
             commands::execute_command,
             commands::get_system_info,
-            commands::read_config
+            commands::read_config,
+            commands::script_start,
+            commands::script_watch,
+            commands::script_suspend,
+            commands::script_resume
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

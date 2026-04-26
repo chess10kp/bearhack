@@ -1369,3 +1369,28 @@
         color: #ffc107;
         border: 1px solid rgba(255, 193, 7, 0.3);
       }
+
+      .script-controls {
+        display: flex;
+        gap: var(--gutter);
+        flex-wrap: wrap;
+      }
+
+      .script-output {
+        margin-top: var(--gutter);
+        background: var(--bg);
+        border: 2px solid var(--border);
+        padding: var(--space-3);
+        font-family: var(--mono);
+        font-size: var(--fs-caption);
+        line-height: 1.6;
+        color: var(--text);
+        white-space: pre-wrap;
+        max-height: 200px;
+        overflow-y: auto;
+        display: none;
+      }
+
+      .script-output.visible {
+        display: block;
+      }
