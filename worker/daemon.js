@@ -5,8 +5,29 @@ import { promisify } from "node:util";
 import express from "express";
 import { config } from "./config.js";
 import * as criu from "./services/criu.js";
+import * as pageServer from "./services/page-server.js";
+import * as migration from "./services/migration.js";
 
 const execFileAsync = promisify(execFile);
+
+function migrationRoot(migrationId) {
+  if (!migrationId || !/^[A-Za-z0-9_.\-]+$/.test(String(migrationId))) {
+    throw new Error("invalid migrationId");
+  }
+  const base = path.resolve(config.checkpointBaseDir);
+  const root = path.resolve(base, "migrations", String(migrationId));
+  if (!root.startsWith(`${base}${path.sep}`)) {
+    throw new Error("path escape");
+  }
+  return root;
+}
+
+function snapshotDir(migrationId, snapshotIndex) {
+  const root = migrationRoot(migrationId);
+  const idx = Number(snapshotIndex);
+  if (!Number.isFinite(idx) || idx < 0) throw new Error("invalid snapshotIndex");
+  return { root, dir: path.join(root, String(idx)), index: idx };
+}
 
 function auth(req, res, next) {
   if (!config.token) return next();
@@ -110,7 +131,20 @@ export async function runDaemon() {
     try {
       await execFileAsync(
         config.xpraBin,
-        ["start", display, "--daemon=yes", `--bind-tcp=0.0.0.0:${port}`],
+        [
+          "start",
+          display,
+          "--daemon=yes",
+          `--bind-tcp=0.0.0.0:${port}`,
+          "--html=on",
+          "--webcam=no",
+          "--mdns=no",
+          "--pulseaudio=no",
+          "--notifications=no",
+          "--printing=no",
+          "--file-transfer=no",
+          "--dbus=no",
+        ],
         { maxBuffer: 2 * 1024 * 1024, timeout: 30_000 },
       );
       res.json({ ok: true, display, port });
@@ -136,6 +170,125 @@ export async function runDaemon() {
     }
   });
 
+  // ---- live migration (CRIU page-server pre-copy) ----
+
+  app.post("/api/worker/migration/prepare", (req, res) => {
+    try {
+      const migrationId = String(req.body?.migrationId || "");
+      const snapshotIndex = Number(req.body?.snapshotIndex);
+      const root = migrationRoot(migrationId);
+      const r = migration.prepareSnapshot({
+        migrationId,
+        snapshotIndex,
+        root,
+      });
+      res.json({ ok: true, root: r.root, dir: r.dir, snapshotIndex });
+    } catch (err) {
+      res.status(400).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/worker/migration/page-server/start", async (req, res) => {
+    try {
+      const migrationId = String(req.body?.migrationId || "");
+      const snapshotIndex = Number(req.body?.snapshotIndex);
+      const port = Number(req.body?.port);
+      if (!Number.isFinite(port) || port <= 0) {
+        throw new Error("port required");
+      }
+      const { dir } = snapshotDir(migrationId, snapshotIndex);
+      fs.mkdirSync(dir, { recursive: true });
+      const r = await pageServer.start({ port, dir });
+      res.json({
+        ok: true,
+        port: r.port,
+        dir: r.dir,
+        pid: r.pid,
+        logFile: r.logFile,
+      });
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/worker/migration/page-server/wait", async (req, res) => {
+    try {
+      const port = Number(req.body?.port);
+      const timeoutMs = Number(req.body?.timeoutMs) || 600_000;
+      const r = await pageServer.waitExit(port, timeoutMs);
+      res.json(r);
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.post("/api/worker/migration/page-server/stop", (req, res) => {
+    const port = Number(req.body?.port);
+    res.json(pageServer.stop(port));
+  });
+
+  app.get("/api/worker/migration/page-server/list", (_req, res) => {
+    res.json({ ok: true, servers: pageServer.list() });
+  });
+
+  // Raw upload of one metadata image file into a snapshot dir.
+  // Body is the raw file bytes; ?name= is the filename (no slashes).
+  app.put(
+    "/api/worker/migration/file",
+    express.raw({ type: "*/*", limit: "256mb" }),
+    (req, res) => {
+      try {
+        const migrationId = String(req.query.migrationId || "");
+        const snapshotIndex = Number(req.query.snapshotIndex);
+        const name = String(req.query.name || "");
+        if (!name || /[\\/\0]/.test(name) || name === "." || name === "..") {
+          throw new Error("invalid name");
+        }
+        const { dir } = snapshotDir(migrationId, snapshotIndex);
+        fs.mkdirSync(dir, { recursive: true });
+        const target = path.join(dir, name);
+        fs.writeFileSync(target, req.body || Buffer.alloc(0));
+        res.json({ ok: true, path: target, bytes: (req.body || []).length });
+      } catch (err) {
+        res.status(400).json({ error: err.message || String(err) });
+      }
+    },
+  );
+
+  app.post("/api/worker/migration/restore", async (req, res) => {
+    try {
+      const migrationId = String(req.body?.migrationId || "");
+      const snapshotIndex = Number(req.body?.snapshotIndex);
+      const root = migrationRoot(migrationId);
+      const r = await migration.restoreFromSnapshot({
+        root,
+        snapshotIndex,
+        shellJob: req.body?.shellJob !== false,
+        extraArgs: Array.isArray(req.body?.extraArgs)
+          ? req.body.extraArgs.map(String)
+          : [],
+      });
+      res.json(r);
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  // Fallback: extract a tarball of a complete dump dir uploaded via PUT /file.
+  app.post("/api/worker/migration/extract", async (req, res) => {
+    try {
+      const migrationId = String(req.body?.migrationId || "");
+      const snapshotIndex = Number(req.body?.snapshotIndex);
+      const tarName = String(req.body?.tarName || "dump.tar");
+      const { dir } = snapshotDir(migrationId, snapshotIndex);
+      const tarPath = path.join(dir, tarName);
+      const r = await migration.extractDumpTar({ tarPath, destDir: dir });
+      res.json(r);
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
   app.get("/api/worker/xpra/list", async (_req, res) => {
     try {
       const { stdout, stderr } = await execFileAsync(config.xpraBin, ["list"], {
@@ -144,6 +297,30 @@ export async function runDaemon() {
       });
       const text = `${stdout || ""}${stderr || ""}`;
       res.json({ ok: true, output: text });
+    } catch (err) {
+      res.status(500).json({ error: err.message || String(err) });
+    }
+  });
+
+  app.get("/api/worker/xpra/info", async (req, res) => {
+    const display = String(req.query.display || "");
+    if (!display) {
+      res.status(400).json({ error: "display query param required" });
+      return;
+    }
+    try {
+      const { stdout } = await execFileAsync(config.xpraBin, ["info", display], {
+        maxBuffer: 4 * 1024 * 1024,
+        timeout: 10_000,
+      });
+      const map = {};
+      for (const line of String(stdout).split("\n")) {
+        const idx = line.indexOf("=");
+        if (idx > 0) {
+          map[line.slice(0, idx)] = line.slice(idx + 1);
+        }
+      }
+      res.json({ ok: true, display, info: map });
     } catch (err) {
       res.status(500).json({ error: err.message || String(err) });
     }
