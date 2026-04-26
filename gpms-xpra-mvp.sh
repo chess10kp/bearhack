@@ -15,6 +15,7 @@ READY_REQUIRE_WINDOWS="${READY_REQUIRE_WINDOWS:-0}"
 ATTACH_SECONDS="${ATTACH_SECONDS:-4}"
 ATTACH_RETRIES="${ATTACH_RETRIES:-2}"
 ATTACH_RETRY_WAIT_SECONDS="${ATTACH_RETRY_WAIT_SECONDS:-1}"
+ATTACH_OPENGL="${ATTACH_OPENGL:-force}"
 
 mkdir -p "${LOGDIR}"
 
@@ -112,7 +113,7 @@ start_session() {
   echo "[start] session summary:"
   session_info | egrep 'state.windows|command.0.pid|command.0.dead|clients=' || true
   echo "[start] HTML5 client: http://${BIND_ADDR}:${TCP_PORT}/"
-  echo "[start] native attach: xpra attach tcp://${BIND_ADDR}:${TCP_PORT}/"
+  echo "[start] native attach: xpra attach tcp://${BIND_ADDR}:${TCP_PORT}/ --opengl=${ATTACH_OPENGL} --notifications=no --speaker=off --microphone=off --webcam=no"
 }
 
 status_session() {
@@ -128,7 +129,7 @@ attach_once() {
   sec="${1:-${ATTACH_SECONDS}}"
   echo "[attach] connecting for ${sec}s"
   set +e
-  timeout "${sec}"s xpra attach "${DISPLAY_ID}" --opengl=no --speaker=off --microphone=off --webcam=no \
+  timeout "${sec}"s xpra attach "${DISPLAY_ID}" --opengl="${ATTACH_OPENGL}" --notifications=no --speaker=off --microphone=off --webcam=no \
     >"${LOGDIR}/attach-${DISPLAY_NUM}-$(date +%s).log" 2>&1
   rc=$?
   set -e
@@ -224,6 +225,7 @@ Env overrides:
   TCP_PORT=14500     Port for HTML5 / TCP client
   BIND_ADDR=127.0.0.1
   WORKDIR=/tmp/gpms-xpra-mvp
+  ATTACH_OPENGL=force Native attach rendering backend (force/yes/no/auto)
 
 Connect (HTML5 client - works around broken native client on Debian):
   Open http://127.0.0.1:14500/ in a browser
