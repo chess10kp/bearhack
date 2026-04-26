@@ -44,6 +44,7 @@ export function mountMigration() {
       <div class="migration-panel" data-migration-for="${escapeHtml(m.sessionId || "")}">
         <div class="migration-title">live migration · ${escapeHtml(m.sessionId || "—")} ${m.target ? "→ " + escapeHtml(m.target) : ""}</div>
         ${m.transportKind === "dcp" ? `<div class="migration-dcp-meta">dcp ${escapeHtml(m.dcpStatus || "pending")} ${m.dcpJobId ? `· job ${escapeHtml(String(m.dcpJobId))}` : ""}</div>` : ""}
+        ${m.powStatus ? `<div class="migration-pow-meta">PoW <span class="pow-badge pow-${m.powStatus === "passed" ? "ok" : m.powStatus === "failed" ? "fail" : "pending"}">${escapeHtml(m.powStatus)}${m.powHashesPerSec ? ` · ${m.powHashesPerSec} H/s` : ""}</span></div>` : ""}
         <div class="migration-steps">${stepsHtml}</div>
         <div class="progress-wrap">
           <div class="progress-label">

@@ -56,6 +56,9 @@ export function mountHistory() {
               transport === "dcp"
                 ? `${r.dcpStatus || "pending"}${r.dcpJobId ? ` (${String(r.dcpJobId).slice(0, 10)}…)` : ""}`
                 : "—";
+            const powBadge = r.powStatus
+              ? ` <span class="pow-badge pow-${r.powStatus === "passed" ? "ok" : r.powStatus === "failed" ? "fail" : "pending"}" title="PoW: ${r.powStatus || ""}${r.powHashesPerSec ? " " + r.powHashesPerSec + " H/s" : ""}">${r.powStatus === "passed" ? "✓ verified" : r.powStatus === "failed" ? "✗ failed" : r.powStatus}</span>`
+              : "";
             const dcpActions =
               transport === "dcp"
                 ? `<div class="history-actions">
@@ -71,7 +74,7 @@ export function mountHistory() {
             <span class="history-mono" style="color: ${ok ? "var(--secondary)" : "var(--danger)"}">${ok ? "ok" : "fail"}</span>
             <span class="history-mono">${escapeHtml(transport)}</span>
             <span class="history-mono">${escapeHtml(r.cost != null ? String(r.cost) : "—")}</span>
-            <span class="history-mono">${escapeHtml(dcp)}${dcpActions}</span>
+            <span class="history-mono">${escapeHtml(dcp)}${powBadge}${dcpActions}</span>
             <span>${txCell}</span>
           </div>`;
           })

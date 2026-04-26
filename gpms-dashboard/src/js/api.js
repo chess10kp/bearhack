@@ -117,6 +117,29 @@ function wireSocketHandlers(s) {
       dcpJobId: p.jobId || cur.dcpJobId,
     });
   });
+  s.on("migration:pow-status", (p) => {
+    const sid = p && (p.sessionId || p.id);
+    if (!sid) return;
+    const cur = state.getState().migrationBySession[String(sid)] || {
+      sessionId: String(sid),
+    };
+    state.setActiveMigration(String(sid), {
+      ...cur,
+      powStatus: p.status || cur.powStatus,
+      powHashesPerSec: p.hashesPerSec || cur.powHashesPerSec,
+    });
+    if (p.status === "passed") {
+      state.appendLog(
+        `PoW verified · ${p.hashesPerSec || "?"} H/s · target node has compute`,
+        "ok",
+      );
+    } else if (p.status === "failed") {
+      state.appendLog(
+        `PoW failed · ${p.reason || p.error || "unknown"}`,
+        "err",
+      );
+    }
+  });
   s.on("migration:completed", (p) => {
     const sid = p && (p.sessionId || p.id);
     if (sid) {
@@ -406,6 +429,9 @@ function migrationRowToRecord(row) {
     dcpJobId: row.dcp_job_id || undefined,
     dcpStatus: row.dcp_status || undefined,
     dcpError: row.dcp_error || undefined,
+    powStatus: row.pow_status || undefined,
+    powHashesPerSec: row.pow_hashes_per_sec || undefined,
+    powElapsedMs: row.pow_elapsed_ms || undefined,
   };
 }
 
