@@ -2,13 +2,10 @@ import * as monitor from "../services/proc-monitor.js";
 import * as control from "../services/process-control.js";
 import * as criu from "../services/criu.js";
 import * as launcher from "../services/launcher.js";
-import { config } from "../config.js";
+import { config, hasPayerKeypairConfig } from "../config.js";
 import * as log from "../utils/logger.js";
 import { SOLANA_PAYMENT_REQUEST } from "../../solana/socket-events.js";
-import {
-  loadKeypairFromFile,
-  transferToTreasury,
-} from "../../solana/wallet.js";
+import { loadPayerKeypair, transferToTreasury } from "../../solana/wallet.js";
 
 /**
  * @typedef {Object} HandlerCtx
@@ -172,16 +169,19 @@ export function registerAll(ctx) {
   });
 
   socket.on(SOLANA_PAYMENT_REQUEST, async (data) => {
-    const keyPath = config.GRIDLOCK_WALLET_KEYPAIR;
-    if (!keyPath) {
+    if (!hasPayerKeypairConfig()) {
       log.warn(
-        "solana: set GRIDLOCK_WALLET_KEYPAIR to auto-pay after migration",
+        "solana: set GRIDLOCK_WALLET_PRIVATE_KEY or GRIDLOCK_WALLET_KEYPAIR to auto-pay after migration",
       );
       return;
     }
     let keypair;
     try {
-      keypair = loadKeypairFromFile(keyPath);
+      keypair = loadPayerKeypair({
+        privateKey: config.GRIDLOCK_WALLET_PRIVATE_KEY,
+        keypairPath: config.GRIDLOCK_WALLET_KEYPAIR,
+        address: config.GRIDLOCK_WALLET_ADDRESS,
+      });
     } catch (e) {
       log.error("solana wallet", (e && e.message) || e);
       return;

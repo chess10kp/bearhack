@@ -9,6 +9,7 @@ import { S } from "../socket/events.js";
 import { config } from "../config.js";
 import * as criu from "./criu.js";
 import * as transfer from "./transfer.js";
+import * as worker from "./worker-client.js";
 import * as xpra from "./xpra.js";
 import { stopPolling } from "./process-monitor.js";
 import { getSolanaConfig, isSettlementEnabled } from "../../solana/config.js";
@@ -127,12 +128,20 @@ function checkpointRoot() {
 }
 
 async function remoteMkdir(machine, remoteDir) {
+  if (worker.hasWorker(machine)) {
+    await worker.ensureCheckpointDir(machine, remoteDir);
+    return;
+  }
   const u = transfer.sshUserAtHost(machine);
   const args = [...transfer.sshBaseArgs(machine), u, `mkdir -p "${remoteDir}"`];
   await execFileAsync("ssh", args, { maxBuffer: 65536 });
 }
 
 async function remoteCriuRestore(toM, remoteCkptDir) {
+  if (worker.hasWorker(toM)) {
+    const out = await worker.criuRestore(toM, remoteCkptDir);
+    return String(out.output || "");
+  }
   const u = transfer.sshUserAtHost(toM);
   const bin = config.criuBin;
   const cmd = `${bin} restore -D '${remoteCkptDir.replace(/'/g, "'\\''")}' --shell-job 2>&1`;
@@ -155,6 +164,14 @@ function parseRestorePid(blob) {
  */
 async function remotePidAlive(machine, pid) {
   if (!pid) return false;
+  if (worker.hasWorker(machine)) {
+    try {
+      const out = await worker.processAlive(machine, pid);
+      return out && out.alive === true;
+    } catch {
+      return false;
+    }
+  }
   const u = transfer.sshUserAtHost(machine);
   const args = [
     ...transfer.sshBaseArgs(machine),
@@ -178,6 +195,10 @@ async function remotePidAlive(machine, pid) {
  */
 async function remoteSigKillPid(machine, pid) {
   if (!pid) return;
+  if (worker.hasWorker(machine)) {
+    await worker.processKill(machine, pid).catch(() => {});
+    return;
+  }
   const u = transfer.sshUserAtHost(machine);
   const args = [
     ...transfer.sshBaseArgs(machine),
@@ -223,9 +244,14 @@ export async function execute(sessionId, targetMachineId) {
     if (toM.is_local) {
       throw new Error("target is local; pick a remote machine");
     }
-    const okSsh = await transfer.testConnection(toM);
-    if (!okSsh) {
-      throw new Error("SSH to target machine failed (testConnection)");
+    if (worker.hasWorker(toM)) {
+      await worker.health(toM);
+      logL(sessionId, `worker daemon is reachable on ${toM.id}`, "ok");
+    } else {
+      const okSsh = await transfer.testConnection(toM);
+      if (!okSsh) {
+        throw new Error("SSH to target machine failed (testConnection)");
+      }
     }
     db.insertMigration({
       id: migId,

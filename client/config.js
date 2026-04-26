@@ -27,11 +27,26 @@ export const config = {
   CHECKPOINT_DIR: str(process.env.CHECKPOINT_DIR, "/tmp/gpms-checkpoints"),
   LOG_LEVEL: str(process.env.LOG_LEVEL, "info").toLowerCase(),
   LOCAL_MACHINE_ID: str(process.env.LOCAL_MACHINE_ID, "machine-a"),
-  /** Path to Solana CLI-style JSON keypair (payer for compute settlement). */
+  /**
+   * Payer private key: base58, 32/64-byte hex, or JSON keypair array (string).
+   * Takes precedence over GRIDLOCK_WALLET_KEYPAIR when set.
+   */
+  GRIDLOCK_WALLET_PRIVATE_KEY: str(process.env.GRIDLOCK_WALLET_PRIVATE_KEY, ""),
+  /** If set, must match the public key of the loaded key; catches wrong key/addr pairs. */
+  GRIDLOCK_WALLET_ADDRESS: str(process.env.GRIDLOCK_WALLET_ADDRESS, ""),
+  /** Path to Solana CLI-style JSON keypair (payer) when private key is not in env. */
   GRIDLOCK_WALLET_KEYPAIR: str(process.env.GRIDLOCK_WALLET_KEYPAIR, ""),
   /** Optional; defaults to payment payload from server. */
   SOLANA_RPC_URL: str(process.env.SOLANA_RPC_URL, ""),
 };
+
+/** Whether the client can sign Solana settlement (file or env private key). */
+export function hasPayerKeypairConfig() {
+  return Boolean(
+    (config.GRIDLOCK_WALLET_PRIVATE_KEY && config.GRIDLOCK_WALLET_PRIVATE_KEY.trim()) ||
+      (config.GRIDLOCK_WALLET_KEYPAIR && config.GRIDLOCK_WALLET_KEYPAIR.trim()),
+  );
+}
 
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };
 

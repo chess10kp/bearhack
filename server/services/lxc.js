@@ -1,102 +1,162 @@
+import { execFile, spawn } from "node:child_process";
+import { promisify } from "node:util";
 import { insertLog } from "../db.js";
+import { config } from "../config.js";
+
+const execFileAsync = promisify(execFile);
+
+function assertContainerName(name) {
+  if (!/^[a-zA-Z0-9][a-zA-Z0-9-_.]{0,63}$/.test(String(name))) {
+    throw new Error(`invalid container name: ${name}`);
+  }
+}
+
+async function exists(name) {
+  try {
+    await execFileAsync(config.lxcInfoBin, ["-n", name], {
+      timeout: 15_000,
+      maxBuffer: 256 * 1024,
+    });
+    return true;
+  } catch {
+    return false;
+  }
+}
 
 /**
- * LXC is intentionally mocked in v1 (hackathon demo). The server runs the
- * session command on the host with DISPLAY set; CRIU targets that process
- * on the host. A real LXC layer is a post-hackathon task.
- *
- * Post-hackathon real implementation (target behavior):
- * - Create:  lxc-create -n <name> -t none -B dir --dir <rootfs>
- * - Start:   lxc-start -n <name> -F -- <xpra-daemon-command>
- * - Stop:    lxc-stop -n <name> -k
- * - Destroy: lxc-destroy -n <name>
- * - Config:  lxc.conf with CRIU-compatible settings
- *
- * The mock below keeps a Map of container records so start/stop/destroy
- * and list() reflect a consistent fake lifecycle.
+ * @param {string} bin
+ * @param {string[]} args
+ * @param {number} [timeout]
  */
-
-/** @type {Map<string, { name: string, rootfs: string, createdAt: number, running: boolean, startedAt?: number, stoppedAt?: number }>} */
-const mockContainers = new Map();
-
-function recordFor(name) {
-  const rootfs = `/tmp/gpms-mock-lxc/${name}/rootfs`;
-  const createdAt = Date.now();
-  return {
-    name,
-    rootfs,
-    createdAt,
-    running: false,
-  };
+async function run(bin, args, timeout = 45_000) {
+  const { stdout, stderr } = await execFileAsync(bin, args, {
+    timeout,
+    maxBuffer: 4 * 1024 * 1024,
+  });
+  return `${stdout || ""}${stderr || ""}`.trim();
 }
 
 /**
  * @param {string} name
- * @param {object} [_opts]
+ * @param {{ rootfs?: string }} [opts]
  * @returns {Promise<{ name: string, rootfs: string, createdAt: number }>}
  */
-export async function createContainer(name, _opts = {}) {
-  if (mockContainers.has(name)) {
-    const existing = mockContainers.get(name);
+export async function createContainer(name, opts = {}) {
+  assertContainerName(name);
+  const rootfs = opts.rootfs || `/var/lib/lxc/${name}/rootfs`;
+  if (await exists(name)) {
     insertLog({
       level: "warn",
-      message: `container ${name} already exists (mock, idempotent)`,
+      message: `container ${name} already exists (idempotent)`,
     });
-    return {
-      name: existing.name,
-      rootfs: existing.rootfs,
-      createdAt: existing.createdAt,
-    };
+    return { name, rootfs, createdAt: Date.now() };
   }
-  const rec = recordFor(name);
-  mockContainers.set(name, rec);
-  insertLog({ level: "info", message: `container ${name} created (mock)` });
-  return { name: rec.name, rootfs: rec.rootfs, createdAt: rec.createdAt };
+  await run(config.lxcBin, [
+    "-n",
+    name,
+    "-t",
+    "none",
+    "-B",
+    "dir",
+    "--dir",
+    rootfs,
+  ]);
+  insertLog({ level: "info", message: `container ${name} created` });
+  return { name, rootfs, createdAt: Date.now() };
 }
 
 /**
  * @param {string} name
+ * @param {{ initCommand?: string[], foreground?: boolean }} [opts]
  */
-export async function startContainer(name) {
-  let rec = mockContainers.get(name);
-  if (!rec) {
-    insertLog({
-      level: "warn",
-      message: `startContainer: unknown ${name} in mock, synthesizing record`,
-    });
-    rec = recordFor(name);
-    mockContainers.set(name, rec);
+export async function startContainer(name, opts = {}) {
+  assertContainerName(name);
+  const args = ["-n", name];
+  if (opts.foreground) {
+    args.push("-F");
+  } else {
+    args.push("-d");
   }
-  rec.running = true;
-  rec.startedAt = Date.now();
-  delete rec.stoppedAt;
-  insertLog({ level: "info", message: `container ${name} started (mock)` });
+  if (Array.isArray(opts.initCommand) && opts.initCommand.length > 0) {
+    args.push("--", ...opts.initCommand);
+  }
+  await run(config.lxcStartBin, args);
+  insertLog({ level: "info", message: `container ${name} started` });
 }
 
 /**
  * @param {string} name
  */
 export async function stopContainer(name) {
-  const rec = mockContainers.get(name);
-  if (rec) {
-    rec.running = false;
-    rec.stoppedAt = Date.now();
+  assertContainerName(name);
+  try {
+    await run(config.lxcStopBin, ["-n", name, "-k"], 20_000);
+    insertLog({ level: "info", message: `container ${name} stopped` });
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    insertLog({
+      level: "warn",
+      message: `container ${name} stop failed: ${msg}`,
+    });
   }
-  insertLog({ level: "info", message: `container ${name} stopped (mock)` });
 }
 
 /**
  * @param {string} name
  */
 export async function destroyContainer(name) {
-  mockContainers.delete(name);
-  insertLog({ level: "info", message: `container ${name} destroyed (mock)` });
+  assertContainerName(name);
+  try {
+    await run(config.lxcDestroyBin, ["-n", name], 20_000);
+    insertLog({ level: "info", message: `container ${name} destroyed` });
+  } catch (err) {
+    const msg = err && err.message ? err.message : String(err);
+    insertLog({
+      level: "warn",
+      message: `container ${name} destroy failed: ${msg}`,
+    });
+  }
 }
 
 /**
- * Snapshot of mock-tracked containers (for debugging and tests).
- * @returns {Array<{ name: string, rootfs: string, createdAt: number, running: boolean, startedAt?: number, stoppedAt?: number }>}
+ * Spawn a command inside a running container. Caller owns process lifecycle.
+ * @param {string} name
+ * @param {string} command
+ * @param {{ env?: Record<string, string> }} [opts]
  */
-export function list() {
-  return Array.from(mockContainers.values()).map((r) => ({ ...r }));
+export function runInContainer(name, command, opts = {}) {
+  assertContainerName(name);
+  const env = { ...process.env, ...(opts.env || {}) };
+  const args = ["-n", name, "--clear-env"];
+  if (env.DISPLAY) {
+    args.push("--keep-var", "DISPLAY");
+  }
+  args.push("--", "sh", "-lc", command);
+  return spawn(config.lxcAttachBin, args, {
+    env,
+    detached: false,
+    stdio: "ignore",
+  });
+}
+
+/**
+ * @returns {Promise<Array<{ name: string, state: string }>>}
+ */
+export async function list() {
+  const out = await run(config.lxcInfoBin, ["--list"]);
+  const names = out
+    .split(/\s+/)
+    .map((s) => s.trim())
+    .filter(Boolean);
+  const rows = [];
+  for (const n of names) {
+    try {
+      const detail = await run(config.lxcInfoBin, ["-n", n]);
+      const m = detail.match(/State:\s+([A-Z]+)/);
+      rows.push({ name: n, state: m ? m[1] : "UNKNOWN" });
+    } catch {
+      rows.push({ name: n, state: "UNKNOWN" });
+    }
+  }
+  return rows;
 }

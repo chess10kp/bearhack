@@ -65,6 +65,20 @@ function ensureSessionColumn(name, ddl) {
 
 ensureSessionColumn("xpra_tunnel_pid", "INTEGER");
 
+function machineColumnNames() {
+  return db.prepare("PRAGMA table_info(machines)").all().map((r) => r.name);
+}
+
+function ensureMachineColumn(name, ddl) {
+  if (!tableExists("machines")) return;
+  const cols = machineColumnNames();
+  if (cols.includes(name)) return;
+  db.exec(`ALTER TABLE machines ADD COLUMN ${name} ${ddl}`);
+}
+
+ensureMachineColumn("worker_url", "TEXT");
+ensureMachineColumn("worker_token", "TEXT");
+
 /* ——— Sessions ——— */
 
 export function getSession(id) {
@@ -150,6 +164,8 @@ export function upsertMachine(m) {
       "cpu_cores",
       "ram_gb",
       "gpu",
+      "worker_url",
+      "worker_token",
       "status",
       "last_seen",
     ];
@@ -169,8 +185,8 @@ export function upsertMachine(m) {
     return;
   }
   db.prepare(`
-    INSERT INTO machines (id, label, hostname, is_local, ip, ssh_user, ssh_key_path, kernel, cpu_cores, ram_gb, gpu, status, last_seen)
-    VALUES (@id, @label, @hostname, @is_local, @ip, @ssh_user, @ssh_key_path, @kernel, @cpu_cores, @ram_gb, @gpu, @status, @last_seen)
+    INSERT INTO machines (id, label, hostname, is_local, ip, ssh_user, ssh_key_path, kernel, cpu_cores, ram_gb, gpu, worker_url, worker_token, status, last_seen)
+    VALUES (@id, @label, @hostname, @is_local, @ip, @ssh_user, @ssh_key_path, @kernel, @cpu_cores, @ram_gb, @gpu, @worker_url, @worker_token, @status, @last_seen)
   `).run({
     id: m.id,
     label: m.label || m.id,
@@ -183,6 +199,8 @@ export function upsertMachine(m) {
     cpu_cores: m.cpu_cores ?? null,
     ram_gb: m.ram_gb ?? null,
     gpu: m.gpu ?? null,
+    worker_url: m.worker_url ?? null,
+    worker_token: m.worker_token ?? null,
     status: m.status || "offline",
     last_seen: m.last_seen ?? null,
   });

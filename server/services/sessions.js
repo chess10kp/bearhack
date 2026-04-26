@@ -1,4 +1,3 @@
-import { spawn } from "node:child_process";
 import path from "node:path";
 import { v4 as uuidv4 } from "uuid";
 import * as db from "../db.js";
@@ -52,7 +51,7 @@ export async function launchSession(command) {
   try {
     const { name } = await lxc.createContainer(cname, {});
     cId = name;
-    await lxc.startContainer(cId);
+    await lxc.startContainer(cId, { initCommand: ["sleep", "infinity"] });
     display = await xpra.findFreeDisplay();
     await xpra.startSession(display, {});
     xpraStarted = true;
@@ -66,14 +65,8 @@ export async function launchSession(command) {
       container_id: cId,
     });
     dbInserted = true;
-    const env = {
-      ...process.env,
-      DISPLAY: display,
-    };
-    const child = spawn("sh", ["-c", command], {
-      env,
-      detached: false,
-      stdio: "ignore",
+    const child = lxc.runInContainer(cId, command, {
+      env: { DISPLAY: display },
     });
     if (!child.pid) {
       throw new Error("failed to spawn session command");

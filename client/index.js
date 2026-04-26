@@ -2,13 +2,10 @@
 import { spawn } from "node:child_process";
 import { Command, Option } from "commander";
 import dotenv from "dotenv";
-import { config, runStartupChecks } from "./config.js";
+import { config, runStartupChecks, hasPayerKeypairConfig } from "./config.js";
 import { runDaemon } from "./daemon.js";
 import * as criu from "./services/criu.js";
-import {
-  loadKeypairFromFile,
-  transferToTreasury,
-} from "../solana/wallet.js";
+import { loadPayerKeypair, transferToTreasury } from "../solana/wallet.js";
 import { getSolanaConfig } from "../solana/config.js";
 
 dotenv.config();
@@ -377,11 +374,16 @@ program
   });
 
 async function payMigrationById(migrationId) {
-  const keyPath = config.GRIDLOCK_WALLET_KEYPAIR;
-  if (!keyPath) {
-    throw new Error("set GRIDLOCK_WALLET_KEYPAIR in .env");
+  if (!hasPayerKeypairConfig()) {
+    throw new Error(
+      "set GRIDLOCK_WALLET_PRIVATE_KEY or GRIDLOCK_WALLET_KEYPAIR in .env",
+    );
   }
-  const keypair = loadKeypairFromFile(keyPath);
+  const keypair = loadPayerKeypair({
+    privateKey: config.GRIDLOCK_WALLET_PRIVATE_KEY,
+    keypairPath: config.GRIDLOCK_WALLET_KEYPAIR,
+    address: config.GRIDLOCK_WALLET_ADDRESS,
+  });
   const rm = await rest(`/api/migrations/${encodeURIComponent(migrationId)}`);
   if (!rm.ok) {
     throw new Error(await rm.text());

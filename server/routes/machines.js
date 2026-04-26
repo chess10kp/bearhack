@@ -1,6 +1,7 @@
 import { Router } from "express";
 import * as db from "../db.js";
 import * as transfer from "../services/transfer.js";
+import * as worker from "../services/worker-client.js";
 import { getIo } from "../context.js";
 import { S } from "../socket/events.js";
 
@@ -35,6 +36,8 @@ export function createMachinesRouter() {
       cpu_cores: b.cpu_cores,
       ram_gb: b.ram_gb,
       gpu: b.gpu,
+      worker_url: b.worker_url,
+      worker_token: b.worker_token,
       status: b.status || "online",
       last_seen: Math.floor(Date.now() / 1000),
     });
@@ -64,6 +67,8 @@ export function createMachinesRouter() {
       cpu_cores: b.cpu_cores,
       ram_gb: b.ram_gb,
       gpu: b.gpu,
+      worker_url: b.worker_url,
+      worker_token: b.worker_token,
       status: b.status,
       last_seen: b.last_seen ?? Math.floor(Date.now() / 1000),
     });
@@ -90,7 +95,9 @@ export function createMachinesRouter() {
       res.status(404).json({ error: "not found" });
       return;
     }
-    const ok = await transfer.testConnection(m);
+    const ok = worker.hasWorker(m)
+      ? await worker.health(m).then(() => true).catch(() => false)
+      : await transfer.testConnection(m);
     const status = ok ? "online" : "offline";
     db.upsertMachine({ ...m, id: m.id, status, last_seen: Math.floor(Date.now() / 1000) });
     const m2 = db.getMachine(m.id);

@@ -14,6 +14,8 @@ CREATE TABLE IF NOT EXISTS machines (
   cpu_cores    INTEGER,
   ram_gb       REAL,
   gpu          TEXT,
+  worker_url   TEXT,
+  worker_token TEXT,
   status       TEXT DEFAULT 'offline',
   last_seen    INTEGER,
   created_at   INTEGER DEFAULT (strftime('%s','now'))

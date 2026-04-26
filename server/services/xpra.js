@@ -4,6 +4,7 @@ import path from "node:path";
 import { promisify } from "node:util";
 import { config } from "../config.js";
 import * as transfer from "./transfer.js";
+import * as worker from "./worker-client.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -120,6 +121,10 @@ export async function list() {
  * @param {object} machine – machines table row
  */
 export async function listRemote(machine) {
+  if (worker.hasWorker(machine)) {
+    const out = await worker.xpraList(machine);
+    return parseXpraListText(String(out.output || ""));
+  }
   const u = transfer.sshUserAtHost(machine);
   const xpra = config.xpraBin;
   const args = [
@@ -144,6 +149,11 @@ const DEFAULT_LIVE_WAIT_MS = 5000;
 export async function startRemote(machine, display) {
   const disp = display.startsWith(":") ? display : `:${display}`;
   const port = xpraPortForDisplay(disp);
+  if (worker.hasWorker(machine)) {
+    await worker.xpraStart(machine, disp, port);
+    await new Promise((r) => setTimeout(r, INIT_WAIT_MS));
+    return { display: disp, port };
+  }
   const u = transfer.sshUserAtHost(machine);
   const xpra = config.xpraBin;
   const inner = `${xpra.replace(/'/g, "'\\''")} start ${disp} --daemon=yes --bind-tcp=0.0.0.0:${port} 2>&1`;
@@ -231,6 +241,10 @@ export function attachTunnel(_machine, display) {
  */
 export async function stopRemote(machine, display) {
   const disp = display.startsWith(":") ? display : `:${display}`;
+  if (worker.hasWorker(machine)) {
+    await worker.xpraStop(machine, disp).catch(() => {});
+    return;
+  }
   const u = transfer.sshUserAtHost(machine);
   const xpra = config.xpraBin;
   const inner = `${xpra.replace(/'/g, "'\\''")} stop ${disp} 2>&1`;
