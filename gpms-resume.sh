@@ -24,6 +24,8 @@ VERIFY_POLL_SECONDS="${VERIFY_POLL_SECONDS:-0.2}"
 CLEAN_STALE="${CLEAN_STALE:-1}"
 CONNECT_URI="${CONNECT_URI:-tcp://127.0.0.1:14600/}"
 ATTACH_OPENGL="${ATTACH_OPENGL:-force}"
+RESTART_APP_IF_NO_WINDOWS="${RESTART_APP_IF_NO_WINDOWS:-1}"
+WINDOW_RECHECK_SECONDS="${WINDOW_RECHECK_SECONDS:-5}"
 
 usage() {
   cat <<'USAGE'
@@ -47,6 +49,8 @@ Env:
   CLEAN_STALE=1                 (checkpoint mode only)
   CONNECT_URI=tcp://127.0.0.1:14600/
   ATTACH_OPENGL=force
+  RESTART_APP_IF_NO_WINDOWS=1
+  WINDOW_RECHECK_SECONDS=5
 
 Examples:
   ./gpms-resume.sh                              # auto-detect freeze
@@ -214,7 +218,7 @@ do_freeze_resume() {
   {
     echo "# post-resume states"
     for pid in "${pids[@]}"; do
-      st="$(proc_state "${pid}")"
+      st="$(proc_state "${pid}" || true)"
       printf '%s\t%s\n' "${pid}" "${st:-gone}"
     done
   } >"${DIR}/post-resume-states.txt"
@@ -226,6 +230,31 @@ do_freeze_resume() {
 
   echo "[resume] all alive processes are running again"
   echo "[resume] state log: ${DIR}/post-resume-states.txt"
+
+  local windows app_cmd
+  windows="$(xpra info ":${SESSION}" 2>/dev/null | awk -F= '/^state\.windows=/{w=$2} END{print w+0}' || true)"
+  windows="${windows:-0}"
+  if [[ "${windows}" == "0" ]]; then
+    echo "[resume] warning: session has 0 windows after resume"
+    app_cmd=""
+    if [[ -f "${DIR}/metadata.env" ]]; then
+      app_cmd="$(awk -F= '/^APP_CMD=/{print substr($0, index($0, "=")+1)}' "${DIR}/metadata.env" || true)"
+    fi
+    app_cmd="${app_cmd:-unknown}"
+    if [[ "${RESTART_APP_IF_NO_WINDOWS}" == "1" ]] && [[ "${app_cmd}" != "unknown" ]]; then
+      echo "[resume] attempting to relaunch app: ${app_cmd}"
+      xpra control ":${SESSION}" start-child "${app_cmd}" >/dev/null 2>&1 || true
+      sleep "${WINDOW_RECHECK_SECONDS}"
+      windows="$(xpra info ":${SESSION}" 2>/dev/null | awk -F= '/^state\.windows=/{w=$2} END{print w+0}' || true)"
+      windows="${windows:-0}"
+      echo "[resume] state.windows=${windows}"
+      if [[ "${windows}" == "0" ]]; then
+        echo "[resume] hint: manual relaunch: xpra control :${SESSION} start-child '${app_cmd}'"
+      fi
+    else
+      echo "[resume] hint: relaunch app: xpra control :${SESSION} start-child '${app_cmd}'"
+    fi
+  fi
 }
 
 # ---------------------------------------------------------------------------

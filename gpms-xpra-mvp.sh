@@ -3,7 +3,7 @@ set -euo pipefail
 
 DISPLAY_NUM="${DISPLAY_NUM:-110}"
 DISPLAY_ID=":${DISPLAY_NUM}"
-CHILD_CMD="${CHILD_CMD:-code --wait --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile /tmp}"
+CHILD_CMD="${CHILD_CMD:-gimp}"
 WORKDIR="${WORKDIR:-/tmp/gpms-xpra-mvp}"
 LOGDIR="${WORKDIR}/logs"
 TCP_PORT="${TCP_PORT:-14600}"
@@ -317,7 +317,7 @@ Usage:
 
 Env overrides:
   DISPLAY_NUM=110
-  CHILD_CMD='code --wait ... /tmp'
+  CHILD_CMD='gimp'
   START_MODE=start-child      Use 'start-child' for checkpointability; use 'start' only for detached daemons
   EXIT_WITH_CHILDREN=no       Use 'yes' when using start-child and you want server to exit with app
   TCP_PORT=14600
@@ -325,8 +325,8 @@ Env overrides:
   ATTACH_OPENGL=force
   XVFB_CMD='Xvfb ... -extension MIT-SHM ...'
 
-Recommended for VSCode:
-  CHILD_CMD='code --wait --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile /tmp' START_MODE=start-child EXIT_WITH_CHILDREN=no ./gpms-xpra-mvp.sh start
+Recommended for GIMP:
+  CHILD_CMD='gimp' START_MODE=start-child EXIT_WITH_CHILDREN=no ./gpms-xpra-mvp.sh start
 USAGE
 }
 
