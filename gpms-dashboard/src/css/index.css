@@ -1394,3 +1394,43 @@
       .script-output.visible {
         display: block;
       }
+
+      .croc-controls {
+        display: flex;
+        flex-direction: column;
+        gap: var(--gutter);
+      }
+
+      .croc-row {
+        display: flex;
+        align-items: center;
+        gap: var(--gutter);
+      }
+
+      .croc-label {
+        font-family: var(--mono);
+        font-size: var(--fs-caption);
+        font-weight: var(--fw-label-caps);
+        text-transform: uppercase;
+        letter-spacing: 0.05em;
+        color: var(--muted);
+        min-width: 40px;
+      }
+
+      .croc-input {
+        flex: 1;
+        max-width: 300px;
+        background: var(--bg);
+        border: 2px solid var(--border2);
+        border-radius: var(--radius-sharp);
+        padding: calc(var(--unit) / 2) var(--space-2);
+        color: var(--text);
+        font-family: var(--mono);
+        font-size: var(--fs-body-md);
+      }
+
+      .croc-buttons {
+        display: flex;
+        gap: var(--gutter);
+        flex-wrap: wrap;
+      }

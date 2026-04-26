@@ -16,16 +16,11 @@ cat >"${DEMO_SCRIPT}" <<'EOF'
 set -euo pipefail
 
 DEMO_DIR="${DEMO_DIR:-/tmp/gpms-demo}"
+REPO_DIR="${REPO_DIR:-/home/oem/git/bearhack}"
 cd "${DEMO_DIR}"
 
-if [[ ! -s stb_image.h ]]; then
-  curl -fsSL -o stb_image.h https://raw.githubusercontent.com/nothings/stb/master/stb_image.h
-fi
-
-cat > build_stb_image.c <<'SRC'
-#define STB_IMAGE_IMPLEMENTATION
-#include "stb_image.h"
-SRC
+cp "${REPO_DIR}/stb_image.h" .
+cp "${REPO_DIR}/build_stb_image.c" .
 
 pass=1
 while :; do

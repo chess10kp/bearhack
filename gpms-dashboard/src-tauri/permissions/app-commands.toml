@@ -5,4 +5,11 @@ commands.allow = [
   "execute_command",
   "get_system_info",
   "read_config",
+  "script_start",
+  "script_watch",
+  "script_suspend",
+  "script_resume",
+  "croc_send",
+  "croc_receive",
+  "croc_send_running",
 ]

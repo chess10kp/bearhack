@@ -1,6 +1,14 @@
 mod commands {
     use serde::Serialize;
 
+    fn chrono_lite_timestamp() -> u64 {
+        use std::time::{SystemTime, UNIX_EPOCH};
+        SystemTime::now()
+            .duration_since(UNIX_EPOCH)
+            .map(|d| d.as_secs())
+            .unwrap_or(0)
+    }
+
     #[tauri::command]
     pub fn execute_command(cmd: String) -> Result<String, String> {
         #[cfg(windows)]
@@ -110,6 +118,43 @@ mod commands {
             .map_err(|e| e.to_string())?;
         Ok(String::from_utf8_lossy(&output.stdout).to_string())
     }
+
+    #[tauri::command]
+    pub fn croc_send(pid: String, migration_id: Option<String>) -> Result<String, String> {
+        let id_arg = migration_id.unwrap_or_else(|| format!("mig-{}", chrono_lite_timestamp()));
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/gpms-croc-migrate.sh")
+            .arg("send")
+            .arg(&pid)
+            .arg(&id_arg)
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[tauri::command]
+    pub fn croc_receive(migration_id: Option<String>) -> Result<String, String> {
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/gpms-croc-migrate.sh")
+            .arg("receive")
+            .arg(migration_id.unwrap_or_default())
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
+
+    #[tauri::command]
+    pub fn croc_send_running(pid: String, migration_id: Option<String>) -> Result<String, String> {
+        let id_arg = migration_id.unwrap_or_else(|| format!("mig-{}", chrono_lite_timestamp()));
+        let output = std::process::Command::new("bash")
+            .arg("/home/oem/git/bearhack/gpms-croc-migrate.sh")
+            .arg("send-running")
+            .arg(&pid)
+            .arg(&id_arg)
+            .output()
+            .map_err(|e| e.to_string())?;
+        Ok(String::from_utf8_lossy(&output.stdout).to_string())
+    }
 }
 
 #[cfg_attr(mobile, tauri::mobile_entry_point)]
@@ -122,7 +167,10 @@ pub fn run() {
             commands::script_start,
             commands::script_watch,
             commands::script_suspend,
-            commands::script_resume
+            commands::script_resume,
+            commands::croc_send,
+            commands::croc_receive,
+            commands::croc_send_running
         ])
         .run(tauri::generate_context!())
         .expect("error while running tauri application");

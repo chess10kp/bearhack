@@ -109,6 +109,29 @@
         <div class="script-output" id="scriptOutput"></div>
       </div>
 
+      <div class="section" id="crocSection">
+        <div class="section-header">
+          <div class="section-title">croc migration</div>
+          <div class="section-line"></div>
+        </div>
+        <div class="croc-controls" id="crocControls">
+          <div class="croc-row">
+            <label class="croc-label">PID:</label>
+            <input class="croc-input" type="text" id="crocPidInput" placeholder="process pid">
+          </div>
+          <div class="croc-row">
+            <label class="croc-label">ID:</label>
+            <input class="croc-input" type="text" id="crocIdInput" placeholder="migration id (optional)">
+          </div>
+          <div class="croc-buttons">
+            <button class="action-btn" type="button" id="crocSendBtn">send checkpoint</button>
+            <button class="action-btn" type="button" id="crocSendRunningBtn">send (leave running)</button>
+            <button class="action-btn" type="button" id="crocReceiveBtn">receive &amp; restore</button>
+          </div>
+        </div>
+        <div class="script-output" id="crocOutput"></div>
+      </div>
+
       <div class="section" id="sessionsSection">
         <div class="section-header">
           <div class="section-title">sessions</div>
