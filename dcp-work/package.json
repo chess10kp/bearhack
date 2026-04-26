@@ -1,0 +1,7 @@
+{
+  "name": "gridlock-dcp-work",
+  "version": "0.1.0",
+  "private": true,
+  "description": "DCP work function packages for GridLock/GPMS",
+  "main": "checkpoint.js"
+}
