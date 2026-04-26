@@ -10,6 +10,10 @@ function readForm() {
     autoMigrate: document.getElementById("setAuto")?.checked ?? true,
     defaultTarget: document.getElementById("setTarget")?.value || "machine-b",
     sshKeyPath: document.getElementById("setSsh")?.value || "",
+    xpra_html_enabled: document.getElementById("setXpraHtml")?.checked ? "true" : "false",
+    xpra_webcam: document.getElementById("setXpraWebcam")?.checked ? "on" : "off",
+    xpra_pulseaudio: document.getElementById("setXpraAudio")?.checked ? "on" : "off",
+    xpra_notifications: document.getElementById("setXpraNotif")?.checked ? "on" : "off",
   };
 }
 
@@ -28,6 +32,10 @@ export function mountSettings() {
   const open = () => {
     const s = state.getState();
     const st = s.settings || {};
+    const xpraHtml = st.xpra_html_enabled !== "false" && st.xpra_html_enabled !== false;
+    const xpraWebcam = st.xpra_webcam !== "on" && st.xpra_webcam !== true;
+    const xpraAudio = st.xpra_pulseaudio === "on" || st.xpra_pulseaudio === true;
+    const xpraNotif = st.xpra_notifications === "on" || st.xpra_notifications === true;
     backdrop.style.display = "block";
     modal.style.display = "block";
     backdrop.setAttribute("aria-hidden", "false");
@@ -51,6 +59,23 @@ export function mountSettings() {
       <label class="settings-field">
         <span>SSH key path</span>
         <input type="text" id="setSsh" placeholder="~/.ssh/id_ed25519" value="${escapeHtml(st.sshKeyPath || "")}" />
+      </label>
+      <div class="settings-section-title">Xpra Display</div>
+      <label class="settings-field settings-row">
+        <input type="checkbox" id="setXpraHtml" ${xpraHtml ? "checked" : ""} />
+        <span>HTML5 client (browser display)</span>
+      </label>
+      <label class="settings-field settings-row">
+        <input type="checkbox" id="setXpraWebcam" ${xpraWebcam ? "checked" : ""} />
+        <span>Webcam forwarding</span>
+      </label>
+      <label class="settings-field settings-row">
+        <input type="checkbox" id="setXpraAudio" ${xpraAudio ? "checked" : ""} />
+        <span>Pulseaudio forwarding</span>
+      </label>
+      <label class="settings-field settings-row">
+        <input type="checkbox" id="setXpraNotif" ${xpraNotif ? "checked" : ""} />
+        <span>Desktop notifications</span>
       </label>
       <div class="settings-actions">
         <button type="button" class="action-btn primary" id="settingsSave">Save</button>

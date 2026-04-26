@@ -45,6 +45,9 @@ export function mountSessions() {
       const cpu = se.cpuPercent != null ? `${se.cpuPercent.toFixed(0)}% cpu` : "";
       const selected = s.selectedSessionId === id ? " session-card--selected" : "";
       const showRescue = se.status === "hung";
+      const displayBadge = se.xpraDisplay
+        ? `<span class="session-pid" title="xpra display ${escapeHtml(se.xpraDisplay)}">display ${escapeHtml(se.xpraDisplay)}</span>`
+        : "";
 
       html.push(`
         <div class="session-card ${escapeHtml(cardClass(se))} ${selected}" data-session-id="${escapeHtml(id)}" role="button" tabindex="0" aria-label="Session ${escapeHtml(se.name || id)}">
@@ -55,6 +58,7 @@ export function mountSessions() {
               <div class="session-pid">pid ${se.pid != null ? escapeHtml(String(se.pid)) : "—"}</div>
               <div class="session-time">${escapeHtml(formatUptimeSeconds(se.uptimeSec))}</div>
               ${cpu ? `<div class="session-pid">${escapeHtml(cpu)}</div>` : ""}
+              ${displayBadge}
               <div class="session-pid">${escapeHtml(id)}</div>
             </div>
           </div>
@@ -70,6 +74,7 @@ export function mountSessions() {
               <button class="action-btn${showRescue ? " alert" : ""}" type="button" data-action="migrate" data-id="${escapeHtml(id)}">
                 ${showRescue ? "rescue →" : "migrate"}
               </button>
+              <button class="action-btn" type="button" data-action="migrate-dcp" data-id="${escapeHtml(id)}">migrate dcp</button>
               <button class="action-btn" type="button" data-action="checkpoint" data-id="${escapeHtml(id)}">checkpoint</button>
               <button class="action-btn" type="button" data-action="inspect" data-id="${escapeHtml(id)}">inspect</button>
             </div>
@@ -87,9 +92,11 @@ export function mountSessions() {
         if (!id) return;
         if (s.useMock) {
           if (act === "migrate") mock.mockMigrate(id, s.settings?.defaultTarget);
+          else if (act === "migrate-dcp") mock.mockMigrate(id, s.settings?.defaultTarget);
           else if (act === "checkpoint") mock.mockCheckpoint(id);
         } else {
           if (act === "migrate") api.emitMigrate(id);
+          else if (act === "migrate-dcp") api.emitMigrateDcp(id);
           else if (act === "checkpoint") api.emitCheckpoint(id);
         }
         if (act === "inspect") {

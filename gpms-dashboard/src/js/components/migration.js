@@ -43,6 +43,7 @@ export function mountMigration() {
     slot.innerHTML = `
       <div class="migration-panel" data-migration-for="${escapeHtml(m.sessionId || "")}">
         <div class="migration-title">live migration · ${escapeHtml(m.sessionId || "—")} ${m.target ? "→ " + escapeHtml(m.target) : ""}</div>
+        ${m.transportKind === "dcp" ? `<div class="migration-dcp-meta">dcp ${escapeHtml(m.dcpStatus || "pending")} ${m.dcpJobId ? `· job ${escapeHtml(String(m.dcpJobId))}` : ""}</div>` : ""}
         <div class="migration-steps">${stepsHtml}</div>
         <div class="progress-wrap">
           <div class="progress-label">

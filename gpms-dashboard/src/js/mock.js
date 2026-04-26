@@ -39,6 +39,9 @@ function seed() {
     uptimeSec: 2 * 3600 + 14 * 60,
     status: "running",
     health: "ok",
+    xpraDisplay: ":10",
+    xpraPort: 10010,
+    xpraHtmlUrl: "http://127.0.0.1:10010/",
   });
   state.upsertSession({
     id: "session-002",
@@ -51,6 +54,9 @@ function seed() {
     uptimeSec: 45 * 60,
     status: "hung",
     health: "danger",
+    xpraDisplay: ":11",
+    xpraPort: 10011,
+    xpraHtmlUrl: "http://127.0.0.1:10011/",
   });
   state.upsertSession({
     id: "session-003",
@@ -63,6 +69,9 @@ function seed() {
     uptimeSec: 5 * 3600 + 2 * 60,
     status: "running",
     health: "ok",
+    xpraDisplay: ":12",
+    xpraPort: 10012,
+    xpraHtmlUrl: "http://127.0.0.1:10012/",
   });
 
   state.upsertMachine({
@@ -243,6 +252,7 @@ export function mockKill(sessionId) {
  * @param {string} sessionId
  */
 export function mockFetchSessionDetail(sessionId) {
+  const s = state.getState().sessions[sessionId];
   return Promise.resolve({
     sessionId,
     processTree: [
@@ -255,6 +265,10 @@ export function mockFetchSessionDetail(sessionId) {
     ],
     memoryHistory: [20, 22, 25, 30, 35, 40, 42, 44, 42],
     container: { name: "gpms-box", id: "lxc-001" },
+    xpraDisplay: (s && s.xpraDisplay) || ":10",
+    xpraPort: (s && s.xpraPort) || 10010,
+    xpraHtmlUrl: (s && s.xpraHtmlUrl) || "http://127.0.0.1:10010/",
+    payload: s || null,
   });
 }
 

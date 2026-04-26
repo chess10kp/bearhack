@@ -264,6 +264,9 @@ export function setSettings(s) {
  * @property {number} [uptimeSec]
  * @property {'running'|'hung'|'migrating'|'paused'|'exited'|string} [status]
  * @property {string} [health] ok|warn|danger
+ * @property {string} [xpraDisplay]
+ * @property {number} [xpraPort]
+ * @property {string} [xpraHtmlUrl]
  */
 
 /**
@@ -289,6 +292,10 @@ export function setSettings(s) {
  * @property {number} [stepIndex]
  * @property {number} [percent]
  * @property {string[]} [stepLabels]
+ * @property {string} [transportKind]
+ * @property {string} [dcpStatus]
+ * @property {string} [dcpJobId]
+ * @property {string} [dcpSchedulerUrl]
  */
 
 /**
@@ -303,6 +310,10 @@ export function setSettings(s) {
  * @property {string} [migrationId]
  * @property {string} [solanaSignature]
  * @property {string} [solanaExplorerTx]
+ * @property {string} [transportKind]
+ * @property {string} [dcpJobId]
+ * @property {string} [dcpStatus]
+ * @property {string} [dcpError]
  */
 
 /**
@@ -311,4 +322,8 @@ export function setSettings(s) {
  * @property {object[]} [processTree]
  * @property {number[]} [memoryHistory]
  * @property {object} [container]
+ * @property {string} [xpraDisplay]
+ * @property {number} [xpraPort]
+ * @property {string} [xpraHtmlUrl]
+ * @property {object} [payload]
  */

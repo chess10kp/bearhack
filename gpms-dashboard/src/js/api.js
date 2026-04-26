@@ -91,6 +91,32 @@ function wireSocketHandlers(s) {
       stepLabels: p.stepLabels || cur.stepLabels || defaultStepLabels(),
     });
   });
+  s.on("migration:dcp-submitted", (p) => {
+    const sid = p && (p.sessionId || p.id);
+    if (!sid) return;
+    const cur = state.getState().migrationBySession[String(sid)] || {
+      sessionId: String(sid),
+    };
+    state.setActiveMigration(String(sid), {
+      ...cur,
+      transportKind: "dcp",
+      dcpJobId: p.jobId || cur.dcpJobId,
+      dcpSchedulerUrl: p.schedulerUrl || cur.dcpSchedulerUrl,
+    });
+  });
+  s.on("migration:dcp-status", (p) => {
+    const sid = p && (p.sessionId || p.id);
+    if (!sid) return;
+    const cur = state.getState().migrationBySession[String(sid)] || {
+      sessionId: String(sid),
+    };
+    state.setActiveMigration(String(sid), {
+      ...cur,
+      transportKind: "dcp",
+      dcpStatus: p.status || cur.dcpStatus,
+      dcpJobId: p.jobId || cur.dcpJobId,
+    });
+  });
   s.on("migration:completed", (p) => {
     const sid = p && (p.sessionId || p.id);
     if (sid) {
@@ -205,6 +231,9 @@ function normalizeSession(p) {
     uptimeSec: p.uptimeSec ?? p.uptime,
     status: p.status || "running",
     health,
+    xpraDisplay: p.xpraDisplay || null,
+    xpraPort: p.xpraPort ?? null,
+    xpraHtmlUrl: p.xpraHtmlUrl || null,
   };
 }
 
@@ -254,6 +283,14 @@ export function emitMigrate(sessionId) {
   socket.emit("session:migrate", { sessionId });
 }
 
+export function emitMigrateDcp(sessionId) {
+  if (!socket?.connected) {
+    state.appendLog("not connected — cannot migrate", "err");
+    return;
+  }
+  socket.emit("session:migrate", { sessionId, transportKind: "dcp" });
+}
+
 export function emitCheckpoint(sessionId) {
   if (!socket?.connected) return;
   socket.emit("session:checkpoint", { sessionId });
@@ -289,6 +326,28 @@ export async function fetchSessionDetail(sessionId) {
 
 export async function fetchMigrations() {
   const r = await rest("/api/migrations");
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function fetchMigrationDcpStatus(migrationId) {
+  const r = await rest(`/api/migrations/${encodeURIComponent(migrationId)}/dcp`);
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function cancelMigrationDcp(migrationId) {
+  const r = await rest(`/api/migrations/${encodeURIComponent(migrationId)}/dcp/cancel`, {
+    method: "POST",
+  });
+  if (!r.ok) throw new Error(await r.text());
+  return r.json();
+}
+
+export async function retryMigrationDcp(migrationId) {
+  const r = await rest(`/api/migrations/${encodeURIComponent(migrationId)}/dcp/retry`, {
+    method: "POST",
+  });
   if (!r.ok) throw new Error(await r.text());
   return r.json();
 }
@@ -329,6 +388,10 @@ function migrationRowToRecord(row) {
     message: row.error || undefined,
     solanaSignature: row.payment_signature || undefined,
     paymentPending: row.payment_status === "pending",
+    transportKind: row.transport_kind || "ssh",
+    dcpJobId: row.dcp_job_id || undefined,
+    dcpStatus: row.dcp_status || undefined,
+    dcpError: row.dcp_error || undefined,
   };
 }
 

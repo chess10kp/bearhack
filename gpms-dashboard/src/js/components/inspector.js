@@ -21,6 +21,30 @@ function renderSparkline(values) {
   </svg>`;
 }
 
+function renderDisplayViewer(htmlUrl) {
+  if (!htmlUrl) {
+    return `<div class="inspector-block">
+      <div class="inspector-label">App Display</div>
+      <p class="inspector-meta" style="color: var(--muted); font-family: var(--mono); font-size:0.7rem">No xpra display available for this session.</p>
+    </div>`;
+  }
+  return `<div class="inspector-block">
+    <div class="inspector-label">App Display <a class="xpra-open-link" href="${escapeHtml(htmlUrl)}" target="_blank" rel="noopener" title="Open in new tab">&#x2197;</a></div>
+    <div class="xpra-viewer">
+      <div class="xpra-viewer-loading" id="xpraViewerLoading">Connecting to display…</div>
+      <iframe
+        class="xpra-iframe"
+        id="xpraViewerFrame"
+        src="${escapeHtml(htmlUrl)}"
+        sandbox="allow-scripts allow-same-origin allow-popups"
+        allow="clipboard-read; clipboard-write"
+        loading="lazy"
+        onload="document.getElementById('xpraViewerLoading').style.display='none'"
+      ></iframe>
+    </div>
+  </div>`;
+}
+
 export function mountInspector() {
   const root = document.getElementById("inspectorRoot");
   if (!root) return;
@@ -76,12 +100,14 @@ export function mountInspector() {
       return;
     }
     const tree = JSON.stringify(d.processTree || [], null, 2);
+    const htmlUrl = d.xpraHtmlUrl || (d.payload && d.payload.xpraHtmlUrl) || null;
     root.innerHTML = `
       <div class="inspector-panel">
         <div class="inspector-header">
           <span>Inspect · ${escapeHtml(d.sessionId || id)}</span>
           <button type="button" class="action-btn" id="inspectorClose2">close</button>
         </div>
+        ${renderDisplayViewer(htmlUrl)}
         <div class="inspector-block">
           <div class="inspector-label">Process tree</div>
           <pre class="inspector-pre">${escapeHtml(tree)}</pre>
