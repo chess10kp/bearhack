@@ -80,7 +80,32 @@ seedMachines();
 crashRecovery();
 
 const app = express();
-app.use(cors({ origin: true }));
+const allowedOrigins = new Set([
+  "http://localhost:3000",
+  "http://127.0.0.1:3000",
+  "tauri://localhost",
+  "http://tauri.localhost",
+  "https://tauri.localhost",
+]);
+
+function isAllowedOrigin(origin) {
+  if (!origin) return true;
+  if (allowedOrigins.has(origin)) return true;
+  return /^https?:\/\/(localhost|127\.0\.0\.1)(:\d+)?$/.test(origin);
+}
+
+app.use(
+  cors({
+    origin(origin, cb) {
+      if (isAllowedOrigin(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`origin not allowed: ${origin}`));
+      }
+    },
+    credentials: true,
+  }),
+);
 app.use(express.json({ limit: "1mb" }));
 
 app.get("/api/health", (_req, res) => {
@@ -96,7 +121,16 @@ app.use("/api/solana", createSolanaRouter({ db, getIo }));
 
 const server = http.createServer(app);
 const io = new Server(server, {
-  cors: { origin: true },
+  cors: {
+    origin(origin, cb) {
+      if (isAllowedOrigin(origin)) {
+        cb(null, true);
+      } else {
+        cb(new Error(`origin not allowed: ${origin}`));
+      }
+    },
+    credentials: true,
+  },
 });
 
 setCtx({ io });
