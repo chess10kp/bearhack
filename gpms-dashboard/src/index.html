@@ -1,0 +1,97 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+    <title>GPMS Dashboard</title>
+    <link rel="stylesheet" href="css/index.css" />
+  </head>
+  <body>
+    <div class="scanline"></div>
+    <div class="app" id="app">
+      <header class="topbar" id="topbar">
+        <div class="logo">
+          <div class="logo-dot"></div>
+          gpms
+        </div>
+        <div class="topbar-right" id="topbarRight"></div>
+      </header>
+
+      <div class="hero" id="hero">
+        <div>
+          <div class="hero-title">Session<br /><span>Control.</span></div>
+          <div class="hero-sub">
+            // gui process migration system — xpra + criu + lxc
+          </div>
+        </div>
+        <div class="hero-stats" id="heroStats"></div>
+      </div>
+
+      <div class="section" id="launchSection">
+        <div class="section-header">
+          <div class="section-title">launch</div>
+          <div class="section-line"></div>
+        </div>
+        <div class="launch-bar" id="launchBar">
+          <div class="launch-prompt">$</div>
+          <input
+            class="launch-input"
+            placeholder="gpms run blender scene.blend"
+            id="launchInput"
+            type="text"
+            autocomplete="off"
+          />
+          <button class="action-btn primary" type="button" id="launchBtn">
+            run ↗
+          </button>
+        </div>
+      </div>
+
+      <div class="section" style="margin-top: 1.5rem" id="sessionsSection">
+        <div class="section-header">
+          <div class="section-title">sessions</div>
+          <div class="section-line"></div>
+        </div>
+        <div class="sessions" id="sessionsRoot"></div>
+        <div id="migrationPanelSlot"></div>
+        <div id="inspectorRoot"></div>
+      </div>
+
+      <div class="section" style="margin-top: 1.5rem" id="machinesSection">
+        <div class="section-header">
+          <div class="section-title">remote machines</div>
+          <div class="section-line"></div>
+        </div>
+        <div id="machinesRoot" class="machine-grid"></div>
+      </div>
+
+      <div class="section" style="margin-top: 1.5rem" id="migrationHistorySection">
+        <div class="section-header">
+          <div class="section-title">migration history</div>
+          <div class="section-line"></div>
+        </div>
+        <div id="migrationHistoryRoot"></div>
+      </div>
+
+      <div class="section" style="margin-top: 1.5rem" id="logSection">
+        <div class="section-header">
+          <div class="section-title">system log</div>
+          <div class="section-line"></div>
+        </div>
+        <div class="log-panel" id="logPanel"></div>
+      </div>
+    </div>
+
+    <div
+      class="settings-backdrop"
+      id="settingsBackdrop"
+      aria-hidden="true"
+      style="display: none"
+    ></div>
+    <div class="settings-modal" id="settingsModal" role="dialog" aria-modal="true" style="display: none">
+      <div class="settings-modal-inner" id="settingsRoot"></div>
+    </div>
+
+    <script type="module" src="js/app.js"></script>
+  </body>
+</html>
