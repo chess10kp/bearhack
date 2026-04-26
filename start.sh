@@ -30,7 +30,7 @@ SRC
 pass=1
 while :; do
   echo "$(date +%F-%T) pass=${pass}" >> compile.log
-  gcc -c -O3 -g3 -o stb_image.o build_stb_image.c
+  gcc -v -c -O3 -g3 -o stb_image.o build_stb_image.c >> gcc.log 2>&1
   pass=$((pass + 1))
 done
 EOF

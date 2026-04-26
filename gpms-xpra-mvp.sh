@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-DISPLAY_NUM="${DISPLAY_NUM:-110}"
+DISPLAY_NUM="${DISPLAY_NUM:-120}"
 DISPLAY_ID=":${DISPLAY_NUM}"
 CHILD_CMD="${CHILD_CMD:-gimp}"
 WORKDIR="${WORKDIR:-/tmp/gpms-xpra-mvp}"
@@ -115,17 +115,17 @@ wait_for_session_ready() {
   info_file="${LOGDIR}/info-${DISPLAY_NUM}.tmp"
   echo "[start] waiting up to ${STARTUP_TIMEOUT}s for xpra session to be ready"
 
-  while (( waited < STARTUP_TIMEOUT )); do
+  while ((waited < STARTUP_TIMEOUT)); do
     if session_info >"${info_file}"; then
       windows="$(awk -F= '/^state\.windows=/{print $2; exit}' "${info_file}")"
       windows="${windows:-0}"
       if [[ "${READY_REQUIRE_WINDOWS}" == "1" ]]; then
-        if [[ "${windows}" =~ ^[0-9]+$ ]] && (( windows > 0 )); then
+        if [[ "${windows}" =~ ^[0-9]+$ ]] && ((windows > 0)); then
           rm -f "${info_file}"
           return 0
         fi
       else
-        if grep -q '^command\.[0-9]\+\.dead=False' "${info_file}" || { [[ "${windows}" =~ ^[0-9]+$ ]] && (( windows > 0 )); }; then
+        if grep -q '^command\.[0-9]\+\.dead=False' "${info_file}" || { [[ "${windows}" =~ ^[0-9]+$ ]] && ((windows > 0)); }; then
           rm -f "${info_file}"
           return 0
         fi
@@ -203,7 +203,7 @@ start_session() {
     >"${LOGDIR}/start-${DISPLAY_NUM}.log" 2>&1
 
   wait_for_session_ready
-  if (( POST_START_WAIT_SECONDS > 0 )); then
+  if ((POST_START_WAIT_SECONDS > 0)); then
     sleep "${POST_START_WAIT_SECONDS}"
   fi
   echo "[start] session summary:"
@@ -317,7 +317,7 @@ Usage:
   gpms-xpra-mvp.sh stop
 
 Env overrides:
-  DISPLAY_NUM=110
+  DISPLAY_NUM=120
   CHILD_CMD='gimp'
   START_MODE=start-child      Use 'start-child' for checkpointability; use 'start' only for detached daemons
   EXIT_WITH_CHILDREN=no       Use 'yes' when using start-child and you want server to exit with app
@@ -336,18 +336,18 @@ main() {
   local cmd
   cmd="${1:-}"
   case "${cmd}" in
-    start) start_session ;;
-    status) status_session ;;
-    resume-test) resume_test ;;
-    freeze-test) freeze_test ;;
-    full-test) full_test ;;
-    stop) stop_session ;;
-    -h|--help|help|"") usage ;;
-    *)
-      echo "error: unknown command: ${cmd}" >&2
-      usage
-      exit 2
-      ;;
+  start) start_session ;;
+  status) status_session ;;
+  resume-test) resume_test ;;
+  freeze-test) freeze_test ;;
+  full-test) full_test ;;
+  stop) stop_session ;;
+  -h | --help | help | "") usage ;;
+  *)
+    echo "error: unknown command: ${cmd}" >&2
+    usage
+    exit 2
+    ;;
   esac
 }
 
