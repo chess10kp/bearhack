@@ -48,9 +48,23 @@ function migrateMigrationsSolanaColumns() {
   ensureMigrationColumn("payer_pubkey", "TEXT");
   ensureMigrationColumn("payment_status", "TEXT DEFAULT 'none'");
   ensureMigrationColumn("payment_error", "TEXT");
+  ensureMigrationColumn("transport_kind", "TEXT DEFAULT 'ssh'");
+  ensureMigrationColumn("dcp_job_id", "TEXT");
+  ensureMigrationColumn("dcp_scheduler_url", "TEXT");
+  ensureMigrationColumn("dcp_status", "TEXT");
+  ensureMigrationColumn("dcp_error", "TEXT");
+  ensureMigrationColumn("dcp_result_json", "TEXT");
 }
 
 migrateMigrationsSolanaColumns();
+
+function ensureSettingDefault(key, value) {
+  db.prepare(
+    "INSERT OR IGNORE INTO settings (key, value, updated_at) VALUES (?, ?, strftime('%s','now'))",
+  ).run(key, String(value));
+}
+
+ensureSettingDefault("migration_transport", "ssh");
 
 function sessionColumnNames() {
   return db.prepare("PRAGMA table_info(sessions)").all().map((r) => r.name);
@@ -226,13 +240,14 @@ export function listMigrations(limit = 100) {
 
 export function insertMigration(row) {
   db.prepare(`
-    INSERT INTO migrations (id, session_id, from_machine_id, to_machine_id, status, started_at)
-    VALUES (@id, @session_id, @from_machine_id, @to_machine_id, @status, @started_at)
+    INSERT INTO migrations (id, session_id, from_machine_id, to_machine_id, transport_kind, status, started_at)
+    VALUES (@id, @session_id, @from_machine_id, @to_machine_id, @transport_kind, @status, @started_at)
   `).run({
     id: row.id,
     session_id: row.session_id,
     from_machine_id: row.from_machine_id,
     to_machine_id: row.to_machine_id,
+    transport_kind: row.transport_kind || "ssh",
     status: row.status || "pending",
     started_at: row.started_at ?? Math.floor(Date.now() / 1000),
   });

@@ -66,7 +66,20 @@ export function pull(remoteMachine, remotePath, localDir, opts = {}) {
   return runRsync(args, opts);
 }
 
-function parseProgress2(line) {
+/** rsync 3.1+ --info=progress2: "  2,097,152  100%  328.12MB/s  0:00:00  (xfr#...)" */
+function parseRsyncProgress2Line(line) {
+  const m = line.match(/^\s*([\d,]+)\s+(\d+(?:\.\d+)?)%/);
+  if (m) {
+    const bytes = parseInt(m[1].replace(/,/g, ""), 10);
+    const pct = Math.min(100, Math.max(0, parseFloat(m[2])));
+    if (Number.isFinite(bytes) && Number.isFinite(pct)) {
+      return { bytes, percent: pct };
+    }
+  }
+  return { bytes: null, percent: null };
+}
+
+function parseRsyncPercentLegacy(line) {
   const m = line.match(
     /^\s*(\d+(?:\.\d+)?)%\s*or\s*(\S+)\/(\S+)/i,
   ) || line.match(/(\d+(?:\.\d+)?)%/);
@@ -80,18 +93,36 @@ function parseProgress2(line) {
   return null;
 }
 
+function parseRsyncLine(line) {
+  const o = parseRsyncProgress2Line(line);
+  const percent =
+    o.percent != null ? o.percent : parseRsyncPercentLegacy(line);
+  return { bytes: o.bytes, percent };
+}
+
+function maxBytesFromRsyncOutput(buf) {
+  let max = 0;
+  for (const line of String(buf).replace(/\r/g, "\n").split("\n")) {
+    const o = parseRsyncProgress2Line(line);
+    if (o.bytes != null) max = Math.max(max, o.bytes);
+  }
+  return max;
+}
+
 function runRsync(args, opts) {
   const t0 = Date.now();
   return new Promise((resolve, reject) => {
     const c = spawn("rsync", args, { stdio: ["ignore", "pipe", "pipe"] });
     let errBuf = "";
+    let maxBytes = 0;
     const onData = (chunk) => {
       const s = chunk.toString();
       errBuf += s;
-      for (const line of s.split("\n")) {
-        const p = parseProgress2(line);
-        if (p != null && opts.onProgress) {
-          opts.onProgress(p, line);
+      for (const line of s.replace(/\r/g, "\n").split("\n")) {
+        const o = parseRsyncLine(line);
+        if (o.bytes != null) maxBytes = Math.max(maxBytes, o.bytes);
+        if (o.percent != null && opts.onProgress) {
+          opts.onProgress(o.percent, line);
         }
       }
     };
@@ -104,8 +135,10 @@ function runRsync(args, opts) {
         reject(new Error(`rsync exit ${code}: ${errBuf.slice(-2000)}`));
         return;
       }
+      const fromBuf = maxBytesFromRsyncOutput(errBuf);
+      const bytesTransferred = Math.max(maxBytes, fromBuf);
       resolve({
-        bytesTransferred: 0,
+        bytesTransferred,
         seconds: sec,
         output: errBuf,
       });
@@ -145,7 +178,8 @@ export async function getRemoteSize(remotePath, remoteMachine) {
     const { stdout } = await execFileAsync("ssh", args, { maxBuffer: 65536 });
     const n = parseInt(String(stdout).trim().split(/\s/)[0], 10);
     return Number.isFinite(n) ? n : 0;
-  } catch {
+  } catch (e) {
+    console.error(`[transfer] getRemoteSize ${remotePath}:`, e);
     return 0;
   }
 }

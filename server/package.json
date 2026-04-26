@@ -11,6 +11,7 @@
     "gridlock-solana": "file:../solana",
     "better-sqlite3": "^11.0",
     "cors": "^2.8.5",
+    "dcp-client": "^4.4.17",
     "dotenv": "^16.0",
     "express": "^4.21",
     "socket.io": "^4.8",

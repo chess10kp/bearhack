@@ -47,11 +47,15 @@ export function registerSocketHandlers(io) {
         (payload && payload.targetMachineId) ||
         db.getSetting("default_remote") ||
         config.defaultRemote;
+      const transportKind =
+        payload && typeof payload.transportKind === "string"
+          ? payload.transportKind
+          : undefined;
       if (!target) {
         socket.emit(S.logEntry, { level: "error", message: "no default_remote" });
         return;
       }
-      migration.execute(String(sid), String(target)).catch((e) => {
+      migration.execute(String(sid), String(target), { transportKind }).catch((e) => {
         console.error(e);
       });
     });

@@ -11,12 +11,22 @@ function num(v, d) {
   return Number.isFinite(n) ? n : d;
 }
 
+function bool(v, d) {
+  if (v == null) return d;
+  const s = String(v).trim().toLowerCase();
+  if (["1", "true", "yes", "on"].includes(s)) return true;
+  if (["0", "false", "no", "off"].includes(s)) return false;
+  return d;
+}
+
 export const config = {
   port: num(process.env.PORT, 3000),
   localMachineId: process.env.LOCAL_MACHINE_ID || "machine-a",
   checkpointDir: process.env.CHECKPOINT_DIR || "./checkpoints",
   criuBin: process.env.CRIU_BIN || "/usr/sbin/criu",
   xpraBin: process.env.XPRA_BIN || "/usr/bin/xpra",
+  xpraHtmlEnabled: String(process.env.XPRA_HTML_ENABLED || "true").toLowerCase() !== "false",
+  xpraBindAddr: process.env.XPRA_BIND_ADDR || "0.0.0.0",
   lxcBin: process.env.LXC_BIN || "/usr/bin/lxc-create",
   lxcStartBin: process.env.LXC_START_BIN || "/usr/bin/lxc-start",
   lxcStopBin: process.env.LXC_STOP_BIN || "/usr/bin/lxc-stop",
@@ -30,6 +40,13 @@ export const config = {
   autoMigrate: String(process.env.AUTO_MIGRATE || "false").toLowerCase() === "true",
   xpraBasePort: num(process.env.XPRA_BASE_PORT, 10000),
   displayStart: num(process.env.DISPLAY_START, 10),
+  migrationTransport: String(process.env.MIGRATION_TRANSPORT || "ssh").toLowerCase(),
+  dcpFallbackToSsh: bool(process.env.DCP_FALLBACK_TO_SSH, true),
+  dcpSchedulerUrl:
+    process.env.DCP_SCHEDULER_URL || "https://scheduler.distributed.computer",
+  dcpIdKeystore: process.env.DCP_ID_KEYSTORE || "",
+  dcpAccountKeystore: process.env.DCP_ACCOUNT_KEYSTORE || "",
+  dcpWorkScript: process.env.DCP_WORK_SCRIPT || "../dcp-work/checkpoint.js",
   serverDir: __dirname,
 };
 

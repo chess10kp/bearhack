@@ -14,6 +14,9 @@ function sessionToPayload(s) {
   if (!s) return null;
   const now = Math.floor(Date.now() / 1000);
   const st = s.started_at || now;
+  const xpraDisplay = s.xpra_display || null;
+  const xpraPort = xpraDisplay ? xpra.xpraPortForDisplay(xpraDisplay) : null;
+  const xpraHtmlUrl = xpraDisplay ? xpra.htmlUrl(xpraDisplay) : null;
   return {
     id: s.id,
     name: s.app_name || s.id,
@@ -28,6 +31,9 @@ function sessionToPayload(s) {
     mem: s.memory_mb != null ? `${Math.round(s.memory_mb)} MB` : "",
     status: s.status,
     uptimeSec: now - st,
+    xpraDisplay,
+    xpraPort,
+    xpraHtmlUrl,
   };
 }
 

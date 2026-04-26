@@ -9,9 +9,11 @@ import { S } from "../socket/events.js";
 import { config } from "../config.js";
 import * as criu from "./criu.js";
 import * as transfer from "./transfer.js";
+import * as dcpTransport from "./dcp-transport.js";
 import * as worker from "./worker-client.js";
 import * as xpra from "./xpra.js";
 import { stopPolling } from "./process-monitor.js";
+import { sessionToPayload } from "./sessions.js";
 import { getSolanaConfig, isSettlementEnabled } from "../../solana/config.js";
 import { computeLamports, lamportsToSolDisplay } from "../../solana/pricing.js";
 
@@ -26,7 +28,7 @@ export function isLocked() {
 function stepLabels() {
   return [
     "criu checkpoint (freeze)",
-    "transfer memory image",
+    "transfer/orchestrate memory image",
     "restore in target lxc",
     "reattach xpra display",
   ];
@@ -53,12 +55,102 @@ function emitTransferProgress(sessionId, percent) {
   }
 }
 
+function emitDcpSubmitted(sessionId, payload) {
+  const io = getIo();
+  if (io) {
+    io.emit(S.migrationDcpSubmitted, {
+      sessionId,
+      id: sessionId,
+      ...payload,
+    });
+  }
+}
+
+function emitDcpStatus(sessionId, payload) {
+  const io = getIo();
+  if (io) {
+    io.emit(S.migrationDcpStatus, {
+      sessionId,
+      id: sessionId,
+      ...payload,
+    });
+  }
+}
+
 function logL(sessionId, message, level = "info") {
   db.insertLog({ level, session_id: sessionId, message });
   const io = getIo();
   if (io) {
     io.emit(S.logEntry, { level, session_id: sessionId, message });
   }
+}
+
+function resolveTransportKind(requested) {
+  const v = String(requested || config.migrationTransport || "ssh").toLowerCase();
+  return v === "dcp" ? "dcp" : "ssh";
+}
+
+async function transferCheckpoint({
+  transportKind,
+  migId,
+  sessionId,
+  targetMachineId,
+  localCkpt,
+  toM,
+  remoteCkpt,
+  onSshProgress,
+}) {
+  if (transportKind !== "dcp") {
+    const sshRes = await transfer.push(localCkpt, toM, remoteCkpt, {
+      onProgress: onSshProgress,
+    });
+    return {
+      transportKind: "ssh",
+      transferResult: sshRes,
+      dcpMeta: null,
+    };
+  }
+
+  emitDcpStatus(sessionId, { status: "submitting" });
+  db.updateMigration(migId, { dcp_status: "submitting" });
+  const dcpRes = await dcpTransport.submitCheckpointOrchestration({
+    migrationId: migId,
+    sessionId,
+    targetMachineId,
+    localCheckpointDir: localCkpt,
+    onStatus: (st) => {
+      const runStatus = st && st.runStatus ? String(st.runStatus) : "unknown";
+      db.updateMigration(migId, { dcp_status: runStatus });
+      emitDcpStatus(sessionId, {
+        status: runStatus,
+        total: st?.total ?? null,
+        distributed: st?.distributed ?? null,
+        computed: st?.computed ?? null,
+        error: st?.error || null,
+      });
+    },
+  });
+  const dcpJobId = dcpRes?.dcp?.jobId || null;
+  db.updateMigration(migId, {
+    dcp_job_id: dcpJobId,
+    dcp_scheduler_url: dcpRes?.dcp?.schedulerUrl || null,
+    dcp_status: "completed",
+    dcp_result_json: JSON.stringify(dcpRes?.dcp?.result || null),
+  });
+  emitDcpSubmitted(sessionId, {
+    jobId: dcpJobId,
+    schedulerUrl: dcpRes?.dcp?.schedulerUrl || null,
+  });
+  emitDcpStatus(sessionId, { status: "completed", jobId: dcpJobId });
+
+  const sshRes = await transfer.push(localCkpt, toM, remoteCkpt, {
+    onProgress: onSshProgress,
+  });
+  return {
+    transportKind: "dcp",
+    transferResult: sshRes,
+    dcpMeta: dcpRes,
+  };
 }
 
 function readChildren(pid) {
@@ -73,7 +165,7 @@ function readChildren(pid) {
         .filter((n) => Number.isFinite(n));
     }
   } catch {
-    /* fall through */
+    // /proc/${pid}/children may not exist on this kernel; try task path below
   }
   try {
     const raw = fs
@@ -84,7 +176,9 @@ function readChildren(pid) {
       .split(/\s+/)
       .map((s) => parseInt(s, 10))
       .filter((n) => Number.isFinite(n));
-  } catch {
+  } catch (e) {
+    if (e && e.code === "ENOENT") return [];
+    console.error(`[migration] readChildren for pid ${pid}:`, e);
     return [];
   }
 }
@@ -108,7 +202,7 @@ function freezePids(pids) {
     try {
       process.kill(p, "SIGSTOP");
     } catch {
-      /* gone */
+      // ESRCH: process already exited
     }
   }
 }
@@ -118,7 +212,7 @@ function thawPids(pids) {
     try {
       process.kill(p, "SIGCONT");
     } catch {
-      /* gone */
+      // ESRCH: process already exited
     }
   }
 }
@@ -161,14 +255,25 @@ function parseRestorePid(blob) {
 /**
  * @param {object} machine
  * @param {number} pid
+ * @param {string} [logSessionId] session id for log lines on check failure
  */
-async function remotePidAlive(machine, pid) {
+async function remotePidAlive(machine, pid, logSessionId) {
   if (!pid) return false;
   if (worker.hasWorker(machine)) {
     try {
       const out = await worker.processAlive(machine, pid);
       return out && out.alive === true;
-    } catch {
+    } catch (e) {
+      const msg = e && e.message ? e.message : String(e);
+      if (logSessionId) {
+        logL(
+          logSessionId,
+          `worker processAlive error (treat as not alive): ${msg}`,
+          "warn",
+        );
+      } else {
+        console.error("[migration] worker processAlive", e);
+      }
       return false;
     }
   }
@@ -184,7 +289,19 @@ async function remotePidAlive(machine, pid) {
       timeout: 10_000,
     });
     return String(stdout).trim() === "ok";
-  } catch {
+  } catch (e) {
+    // Remote `test` failure → exit 1: process not in /proc (expected when dead)
+    if (e && e.code === 1) return false;
+    const msg = e && e.message ? e.message : String(e);
+    if (logSessionId) {
+      logL(
+        logSessionId,
+        `remote /proc check error (treat as not alive): ${msg}`,
+        "warn",
+      );
+    } else {
+      console.error("[migration] remotePidAlive ssh", e);
+    }
     return false;
   }
 }
@@ -196,7 +313,9 @@ async function remotePidAlive(machine, pid) {
 async function remoteSigKillPid(machine, pid) {
   if (!pid) return;
   if (worker.hasWorker(machine)) {
-    await worker.processKill(machine, pid).catch(() => {});
+    await worker.processKill(machine, pid).catch((e) => {
+      console.error("[migration] worker processKill", e);
+    });
     return;
   }
   const u = transfer.sshUserAtHost(machine);
@@ -206,7 +325,9 @@ async function remoteSigKillPid(machine, pid) {
     `kill -9 ${pid} 2>/dev/null; true`,
   ];
   await execFileAsync("ssh", args, { maxBuffer: 4096, timeout: 10_000 }).catch(
-    () => {},
+    (e) => {
+      console.error("[migration] remote kill -9", e);
+    },
   );
 }
 
@@ -214,7 +335,7 @@ async function remoteSigKillPid(machine, pid) {
  * @param {string} sessionId
  * @param {string} targetMachineId
  */
-export async function execute(sessionId, targetMachineId) {
+export async function execute(sessionId, targetMachineId, opts = {}) {
   if (activeMigration) {
     const e = new Error("Migration already in progress");
     e.code = 409;
@@ -230,6 +351,9 @@ export async function execute(sessionId, targetMachineId) {
   const sess0 = db.getSession(sessionId);
   const fromMachineId = sess0 ? sess0.machine_id : null;
   try {
+    const transportKind = resolveTransportKind(
+      opts.transportKind || db.getSetting("migration_transport"),
+    );
     const sess = db.getSession(sessionId);
     if (!sess) {
       throw new Error("session not found");
@@ -259,6 +383,7 @@ export async function execute(sessionId, targetMachineId) {
       from_machine_id: fromMachineId || config.localMachineId,
       to_machine_id: targetMachineId,
       status: "pending",
+      transport_kind: transportKind,
     });
     const io = getIo();
     if (io) {
@@ -269,7 +394,11 @@ export async function execute(sessionId, targetMachineId) {
         migrationId: migId,
       });
     }
-    logL(sessionId, `migration ${migId} started → ${toM.id}`, "ok");
+    logL(
+      sessionId,
+      `migration ${migId} started → ${toM.id} (transport=${transportKind})`,
+      "ok",
+    );
     db.updateSessionStatus(sessionId, "migrating", {});
     db.updateMigration(migId, { status: "checkpointing" });
     emitProgress(sessionId, toM.label || toM.id, 0, 0);
@@ -321,25 +450,68 @@ export async function execute(sessionId, targetMachineId) {
     await remoteMkdir(toM, path.posix.dirname(remoteCkpt));
     await remoteMkdir(toM, remoteCkpt);
 
-    await transfer.push(localCkpt, toM, remoteCkpt, {
-      onProgress: (pct) => {
-        const blended = 15 + (pct / 100) * 40;
-        emitProgress(sessionId, toM.label || toM.id, 1, blended);
-        emitTransferProgress(sessionId, pct);
-      },
-    });
+    let transferResult;
+    try {
+      const tx = await transferCheckpoint({
+        transportKind,
+        migId,
+        sessionId,
+        targetMachineId,
+        localCkpt,
+        toM,
+        remoteCkpt,
+        onSshProgress: (pct) => {
+          const blended = 15 + (pct / 100) * 40;
+          emitProgress(sessionId, toM.label || toM.id, 1, blended);
+          emitTransferProgress(sessionId, pct);
+        },
+      });
+      transferResult = tx.transferResult;
+      if (transportKind === "dcp") {
+        logL(sessionId, `DCP orchestration complete (job=${tx?.dcpMeta?.dcp?.jobId || "n/a"})`, "ok");
+      }
+    } catch (e) {
+      if (transportKind === "dcp" && config.dcpFallbackToSsh) {
+        const msg = e && e.message ? e.message : String(e);
+        db.updateMigration(migId, {
+          dcp_status: "failed",
+          dcp_error: msg,
+        });
+        emitDcpStatus(sessionId, { status: "failed", error: msg });
+        logL(sessionId, `DCP failed; falling back to SSH transfer: ${msg}`, "warn");
+        transferResult = await transfer.push(localCkpt, toM, remoteCkpt, {
+          onProgress: (pct) => {
+            const blended = 15 + (pct / 100) * 40;
+            emitProgress(sessionId, toM.label || toM.id, 1, blended);
+            emitTransferProgress(sessionId, pct);
+          },
+        });
+      } else {
+        throw e;
+      }
+    }
     const transferSec = (Date.now() - transferT0) / 1000;
     db.updateMigration(migId, {
       status: "restoring",
       transfer_seconds: transferSec,
     });
-    logL(sessionId, `transferred in ${transferSec.toFixed(1)}s`, "ok");
+    if (transferResult.bytesTransferred > 0) {
+      const mb = transferResult.bytesTransferred / (1024 * 1024);
+      logL(
+        sessionId,
+        `transferred in ${transferSec.toFixed(1)}s (~${mb.toFixed(2)} MB)`,
+        "ok",
+      );
+    } else {
+      logL(sessionId, `transferred in ${transferSec.toFixed(1)}s`, "ok");
+    }
     emitProgress(sessionId, toM.label || toM.id, 2, 55);
     if (sess.xpra_display) {
       try {
         await xpra.stop(sess.xpra_display);
-      } catch {
-        /* ignore */
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e);
+        logL(sessionId, `xpra.stop before restore (continuing): ${msg}`, "warn");
       }
     }
     db.updateSessionStatus(sessionId, "restoring", {});
@@ -394,18 +566,26 @@ export async function execute(sessionId, targetMachineId) {
       }
     }
     emitProgress(sessionId, toM.label || toM.id, 2, 80);
-    const remoteAlive = await remotePidAlive(toM, remoteAppPid);
+    const remoteAlive = await remotePidAlive(toM, remoteAppPid, sessionId);
     if (!remoteAlive) {
       if (tunnelPid) {
         try {
           process.kill(tunnelPid, "SIGKILL");
         } catch {
-          /* ignore */
+          // tunnel may already be dead
         }
         tunnelPid = null;
       }
       if (sess.xpra_display) {
-        await xpra.stopRemote(toM, sess.xpra_display).catch(() => {});
+        await xpra.stopRemote(toM, sess.xpra_display).catch((e) => {
+          logL(
+            sessionId,
+            `xpra.stopRemote after failed /proc check: ${
+              e && e.message ? e.message : String(e)
+            }`,
+            "warn",
+          );
+        });
       }
       await remoteSigKillPid(toM, remoteAppPid);
       throw new Error("restored process not found on target host (/proc check)");
@@ -415,13 +595,13 @@ export async function execute(sessionId, targetMachineId) {
       try {
         process.kill(p, "SIGKILL");
       } catch {
-        /* ignore */
+        // ESRCH
       }
     }
     try {
       process.kill(rootP, "SIGKILL");
     } catch {
-      /* ignore */
+      // ESRCH
     }
     frozenPids = [];
     const sessionFields = {
@@ -503,24 +683,7 @@ export async function execute(sessionId, targetMachineId) {
       }
       const srow = db.getSession(sessionId);
       if (srow) {
-        const now = Math.floor(Date.now() / 1000);
-        const st0 = srow.started_at || now;
-        io0.emit(S.sessionUpdated, {
-          id: srow.id,
-          name: srow.app_name || srow.id,
-          app: srow.app_name,
-          label: srow.app_name,
-          icon: "📦",
-          pid: srow.pid,
-          cpuPercent: srow.cpu_percent,
-          memoryPercent: srow.memory_percent,
-          memPct: srow.memory_percent,
-          memoryLabel:
-            srow.memory_mb != null ? `${Math.round(srow.memory_mb)} MB` : "",
-          mem: srow.memory_mb != null ? `${Math.round(srow.memory_mb)} MB` : "",
-          status: srow.status,
-          uptimeSec: now - st0,
-        });
+        io0.emit(S.sessionUpdated, sessionToPayload(srow));
       }
     }
   } catch (err) {
@@ -528,7 +691,7 @@ export async function execute(sessionId, targetMachineId) {
       try {
         process.kill(tunnelPid, "SIGKILL");
       } catch {
-        /* ignore */
+        // tunnel may already be dead
       }
     }
     if (remoteAppPid > 0 && toM) {
@@ -537,8 +700,9 @@ export async function execute(sessionId, targetMachineId) {
     if (toM && sess0 && sess0.xpra_display) {
       try {
         await xpra.stopRemote(toM, sess0.xpra_display);
-      } catch {
-        /* ignore */
+      } catch (e) {
+        const msg = e && e.message ? e.message : String(e);
+        logL(sessionId, `xpra.stopRemote in migration cleanup: ${msg}`, "warn");
       }
     }
     if (frozenPids.length) {
@@ -567,8 +731,14 @@ export async function execute(sessionId, targetMachineId) {
           completed_at: Math.floor(Date.now() / 1000),
         });
       }
-    } catch {
-      /* ignore */
+    } catch (e) {
+      const imsg = e && e.message ? e.message : String(e);
+      logL(
+        sessionId,
+        `failed to persist migration failure status: ${imsg}`,
+        "error",
+      );
+      console.error("[migration] updateMigration on failure", e);
     }
     if (getIo()) {
       getIo().emit(S.migrationFailed, {
