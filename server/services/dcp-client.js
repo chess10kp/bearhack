@@ -173,10 +173,81 @@ export async function submitOrchestrationJob(payload) {
     payload && typeof payload.onStatus === "function" ? payload.onStatus : () => {};
 
   async function workFunction(input) {
+    progress(0);
+
+    if (input.powChallenge) {
+      var pc = input.powChallenge;
+      var challenge = pc.challenge;
+      var difficulty = pc.difficulty || 16;
+      var requiredMs = pc.requiredMs || 2000;
+      var targetPrefix = "";
+      for (var t = 0; t < difficulty; t++) targetPrefix += "0";
+
+      progress(0.05);
+      var encoder = new TextEncoder();
+      var prefix = encoder.encode(challenge);
+      var nonce = 0;
+      var found = false;
+      var hashHex = "";
+      var startedAt = Date.now();
+      var iterations = 0;
+
+      async function sha256(data) {
+        var buf = typeof data === "string" ? encoder.encode(data) : data;
+        var arr = await crypto.subtle.digest("SHA-256", buf);
+        return new Uint8Array(arr);
+      }
+
+      function toHex(bytes) {
+        var s = "";
+        for (var i = 0; i < bytes.length; i++) s += ("0" + bytes[i].toString(16)).slice(-2);
+        return s;
+      }
+
+      while (!found) {
+        nonce++;
+        iterations++;
+        var combined = new Uint8Array(prefix.length + String(nonce).length);
+        combined.set(prefix, 0);
+        combined.set(encoder.encode(String(nonce)), prefix.length);
+        var h = await sha256(combined);
+        hashHex = toHex(h);
+        if (hashHex.slice(0, difficulty) === targetPrefix) found = true;
+        if (iterations % 256 === 0) progress(Math.min(0.9, iterations / 500000));
+      }
+      var elapsedMs = Date.now() - startedAt;
+
+      var benchStart = Date.now();
+      var benchOps = 0;
+      for (var j = 0; j < 500; j++) {
+        await sha256(new Uint8Array(64));
+        benchOps++;
+      }
+      var benchMs = Date.now() - benchStart;
+      var hashesPerSec = benchMs > 0 ? Math.round((benchOps / benchMs) * 1000) : 0;
+
+      progress(1);
+      return {
+        ok: true,
+        migrationId: input.migrationId,
+        targetMachineId: input.targetMachineId,
+        phase: "pow-challenge",
+        challenge: challenge,
+        nonce: nonce,
+        hash: hashHex,
+        difficulty: difficulty,
+        elapsedMs: elapsedMs,
+        hashesPerSec: hashesPerSec,
+        passed: elapsedMs <= requiredMs * 4,
+        iterations: iterations,
+        workerTimestamp: Date.now(),
+      };
+    }
+
     progress(0.2);
-    const startedAt = Date.now();
+    var startedAt = Date.now();
     progress(0.6);
-    const response = {
+    var response = {
       ok: true,
       migrationId: input.migrationId,
       sessionId: input.sessionId,

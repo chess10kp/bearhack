@@ -1,0 +1,1 @@
+As Android developers, we've run into this more than we wanted: you kick off a long Gradle build, something crashes halfway through, and suddenly your editor session is gone with it. GridLock came from that frustration. We wanted a way to make builds resilient, isolated, and recoverable—so one failed process doesn't nuke our flow state.

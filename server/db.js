@@ -54,6 +54,9 @@ function migrateMigrationsSolanaColumns() {
   ensureMigrationColumn("dcp_status", "TEXT");
   ensureMigrationColumn("dcp_error", "TEXT");
   ensureMigrationColumn("dcp_result_json", "TEXT");
+  ensureMigrationColumn("pow_status", "TEXT");
+  ensureMigrationColumn("pow_hashes_per_sec", "INTEGER");
+  ensureMigrationColumn("pow_elapsed_ms", "INTEGER");
 }
 
 migrateMigrationsSolanaColumns();

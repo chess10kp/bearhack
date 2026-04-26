@@ -10,6 +10,7 @@ import { config } from "../config.js";
 import * as criu from "./criu.js";
 import * as transfer from "./transfer.js";
 import * as dcpTransport from "./dcp-transport.js";
+import * as dcpPow from "./dcp-pow.js";
 import * as worker from "./worker-client.js";
 import * as xpra from "./xpra.js";
 import { stopPolling } from "./process-monitor.js";
@@ -70,6 +71,17 @@ function emitDcpStatus(sessionId, payload) {
   const io = getIo();
   if (io) {
     io.emit(S.migrationDcpStatus, {
+      sessionId,
+      id: sessionId,
+      ...payload,
+    });
+  }
+}
+
+function emitPowStatus(sessionId, payload) {
+  const io = getIo();
+  if (io) {
+    io.emit(S.migrationPowStatus, {
       sessionId,
       id: sessionId,
       ...payload,
@@ -402,6 +414,59 @@ export async function execute(sessionId, targetMachineId, opts = {}) {
     db.updateSessionStatus(sessionId, "migrating", {});
     db.updateMigration(migId, { status: "checkpointing" });
     emitProgress(sessionId, toM.label || toM.id, 0, 0);
+
+    if (transportKind === "dcp") {
+      logL(sessionId, `DCP PoW: challenging ${toM.id} to prove compute capacity`, "info");
+      emitPowStatus(sessionId, { status: "challenging", targetMachineId: toM.id });
+      db.updateMigration(migId, { pow_status: "challenging" });
+
+      try {
+        const powResult = await dcpPow.submitPowChallenge({
+          migrationId: migId,
+          targetMachineId: toM.id,
+          difficulty: 16,
+          requiredMs: 2000,
+          onStatus: (st) => {
+            emitPowStatus(sessionId, {
+              status: st?.runStatus || "unknown",
+              total: st?.total ?? null,
+              distributed: st?.distributed ?? null,
+              computed: st?.computed ?? null,
+            });
+          },
+        });
+
+        db.updateMigration(migId, {
+          pow_status: powResult.passed ? "passed" : "failed",
+          pow_hashes_per_sec: powResult.hashesPerSec,
+          pow_elapsed_ms: powResult.elapsedMs,
+        });
+        emitPowStatus(sessionId, {
+          status: powResult.passed ? "passed" : "failed",
+          hashesPerSec: powResult.hashesPerSec,
+          elapsedMs: powResult.elapsedMs,
+          reason: powResult.reason,
+        });
+
+        if (!powResult.passed) {
+          throw new Error(`PoW verification failed: ${powResult.reason}`);
+        }
+        logL(
+          sessionId,
+          `PoW passed: ${powResult.hashesPerSec} H/s in ${powResult.elapsedMs}ms — target node has compute`,
+          "ok",
+        );
+      } catch (powErr) {
+        const msg = powErr?.message || String(powErr);
+        db.updateMigration(migId, { pow_status: "failed" });
+        emitPowStatus(sessionId, { status: "failed", error: msg });
+        if (config.dcpFallbackToSsh) {
+          logL(sessionId, `PoW failed (${msg}), falling back to SSH transport`, "warn");
+        } else {
+          throw powErr;
+        }
+      }
+    }
 
     const localCkpt = path.join(
       checkpointRoot(),

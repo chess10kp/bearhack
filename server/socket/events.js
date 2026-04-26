@@ -14,6 +14,7 @@ export const S = {
   migrationTransferProgress: "migration:transfer-progress",
   migrationDcpSubmitted: "migration:dcp-submitted",
   migrationDcpStatus: "migration:dcp-status",
+  migrationPowStatus: "migration:pow-status",
   migrationStep: "migration:step",
   migrationCompleted: "migration:completed",
   migrationFailed: "migration:failed",
