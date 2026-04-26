@@ -65,6 +65,9 @@ function ensureSettingDefault(key, value) {
 }
 
 ensureSettingDefault("migration_transport", "ssh");
+ensureSettingDefault("gemma_mock", "true");
+ensureSettingDefault("gemma_model", "gemma-3-27b-it");
+ensureSettingDefault("gemma_timeout_ms", "10000");
 
 function sessionColumnNames() {
   return db.prepare("PRAGMA table_info(sessions)").all().map((r) => r.name);

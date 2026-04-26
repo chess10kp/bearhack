@@ -98,4 +98,8 @@ INSERT OR IGNORE INTO settings (key, value) VALUES
   ('xpra_printing', 'off'),
   ('xpra_file_transfer', 'off'),
   ('xpra_dbus', 'off'),
-  ('xpra_mdns', 'off');
+  ('xpra_mdns', 'off'),
+  ('gemma_mock', 'true'),
+  ('gemma_model', 'gemma-3-27b-it'),
+  ('gemma_timeout_ms', '10000'),
+  ('gemma_api_key', '');

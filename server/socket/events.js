@@ -26,4 +26,6 @@ export const S = {
   sessionMigrate: "session:migrate",
   sessionKill: "session:kill",
   sessionCheckpoint: "session:checkpoint",
+  gemmaDecision: "gemma:decision",
+  gemmaStatus: "gemma:status",
 };
