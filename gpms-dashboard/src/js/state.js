@@ -28,6 +28,8 @@ const initial = {
   inspectorLoading: false,
   migrationsToday: 0,
   useMock: false,
+  /** @type {string} */
+  solanaCluster: "devnet",
 };
 
 let state = structuredClone(initial);
@@ -165,6 +167,29 @@ export function addMigrationRecord(rec) {
   notify();
 }
 
+/**
+ * @param {string} migrationId
+ * @param {Partial<MigrationRecord>} patch
+ */
+export function patchMigrationRecordByMigrationId(migrationId, patch) {
+  if (!migrationId) return;
+  const migrationHistory = state.migrationHistory.map((r) => {
+    if (r.migrationId === migrationId || r.id === migrationId) {
+      return { ...r, ...patch };
+    }
+    return r;
+  });
+  state = { ...state, migrationHistory };
+  notify();
+}
+
+/** @param {string} cluster */
+export function setSolanaCluster(cluster) {
+  if (!cluster) return;
+  state = { ...state, solanaCluster: String(cluster) };
+  notify();
+}
+
 export function setMigrationHistory(list) {
   state = { ...state, migrationHistory: Array.isArray(list) ? list : [] };
   notify();
@@ -275,6 +300,9 @@ export function setSettings(s) {
  * @property {boolean} [success]
  * @property {string} [cost]
  * @property {string} [message]
+ * @property {string} [migrationId]
+ * @property {string} [solanaSignature]
+ * @property {string} [solanaExplorerTx]
  */
 
 /**

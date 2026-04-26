@@ -13,7 +13,9 @@ import { createMachinesRouter } from "./routes/machines.js";
 import { createMigrateRouter } from "./routes/migrate.js";
 import { createCheckpointRouter } from "./routes/checkpoint.js";
 import { createSettingsRouter } from "./routes/settings.js";
+import { createSolanaRouter } from "../solana/routes.js";
 import { registerSocketHandlers } from "./socket/socket-handler.js";
+import { getIo } from "./context.js";
 import * as sessions from "./services/sessions.js";
 
 warnCriuPrivileges();
@@ -90,6 +92,7 @@ app.use("/api/machines", createMachinesRouter());
 app.use("/api/migrations", createMigrateRouter());
 app.use("/api/checkpoints", createCheckpointRouter());
 app.use("/api/settings", createSettingsRouter());
+app.use("/api/solana", createSolanaRouter({ db, getIo }));
 
 const server = http.createServer(app);
 const io = new Server(server, {

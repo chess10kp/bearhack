@@ -31,6 +31,27 @@ if (!tableExists("sessions")) {
   db.exec(schema);
 }
 
+function migrationColumnNames() {
+  return db.prepare("PRAGMA table_info(migrations)").all().map((r) => r.name);
+}
+
+function ensureMigrationColumn(name, ddl) {
+  if (!tableExists("migrations")) return;
+  const cols = migrationColumnNames();
+  if (cols.includes(name)) return;
+  db.exec(`ALTER TABLE migrations ADD COLUMN ${name} ${ddl}`);
+}
+
+function migrateMigrationsSolanaColumns() {
+  ensureMigrationColumn("payment_lamports", "INTEGER");
+  ensureMigrationColumn("payment_signature", "TEXT");
+  ensureMigrationColumn("payer_pubkey", "TEXT");
+  ensureMigrationColumn("payment_status", "TEXT DEFAULT 'none'");
+  ensureMigrationColumn("payment_error", "TEXT");
+}
+
+migrateMigrationsSolanaColumns();
+
 /* ——— Sessions ——— */
 
 export function getSession(id) {
@@ -190,6 +211,18 @@ export function updateMigration(id, fields) {
     id,
     ...fields,
   });
+}
+
+export function listPendingSolanaPayments() {
+  return db
+    .prepare(
+      `SELECT * FROM migrations
+       WHERE status = 'completed'
+         AND COALESCE(payment_status, 'none') = 'pending'
+         AND COALESCE(payment_lamports, 0) > 0
+       ORDER BY COALESCE(completed_at, 0) DESC`,
+    )
+    .all();
 }
 
 /* ——— Log ——— */

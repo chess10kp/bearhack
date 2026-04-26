@@ -90,12 +90,15 @@ function seed() {
   state.setMigrationsToday(2);
   state.setMigrationHistory([
     {
-      id: "mig-1",
+      id: "mig-mock-demo",
+      migrationId: "mig-mock-demo",
       sessionId: "session-000",
       startedAt: Date.now() - 86400000,
       endedAt: Date.now() - 86400000 + 120000,
       success: true,
-      cost: "—",
+      cost: "0.002500",
+      solanaSignature:
+        "5VERv8NMvzbJMEkV8xnrLkEaWRtSz9CosKDYjCJjBRnbJLgp8uirBgmQpjKhoR4tjF3ZpRzrFmBV6UjKdiSZkQUW",
     },
   ]);
 

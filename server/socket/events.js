@@ -1,3 +1,8 @@
+import {
+  SOLANA_PAYMENT_CONFIRMED,
+  SOLANA_PAYMENT_REQUEST,
+} from "../../solana/socket-events.js";
+
 export const S = {
   sessionCreated: "session:created",
   sessionList: "session:list",
@@ -10,6 +15,8 @@ export const S = {
   migrationStep: "migration:step",
   migrationCompleted: "migration:completed",
   migrationFailed: "migration:failed",
+  solanaPaymentRequest: SOLANA_PAYMENT_REQUEST,
+  solanaPaymentConfirmed: SOLANA_PAYMENT_CONFIRMED,
   machineList: "machine:list",
   machineUpdated: "machine:updated",
   logEntry: "log:entry",

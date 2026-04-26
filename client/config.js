@@ -27,6 +27,10 @@ export const config = {
   CHECKPOINT_DIR: str(process.env.CHECKPOINT_DIR, "/tmp/gpms-checkpoints"),
   LOG_LEVEL: str(process.env.LOG_LEVEL, "info").toLowerCase(),
   LOCAL_MACHINE_ID: str(process.env.LOCAL_MACHINE_ID, "machine-a"),
+  /** Path to Solana CLI-style JSON keypair (payer for compute settlement). */
+  GRIDLOCK_WALLET_KEYPAIR: str(process.env.GRIDLOCK_WALLET_KEYPAIR, ""),
+  /** Optional; defaults to payment payload from server. */
+  SOLANA_RPC_URL: str(process.env.SOLANA_RPC_URL, ""),
 };
 
 const LEVELS = { debug: 0, info: 1, warn: 2, error: 3 };

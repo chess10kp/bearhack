@@ -4,6 +4,11 @@ import dotenv from "dotenv";
 import { config, runStartupChecks } from "./config.js";
 import { runDaemon } from "./daemon.js";
 import * as criu from "./services/criu.js";
+import {
+  loadKeypairFromFile,
+  transferToTreasury,
+} from "../solana/wallet.js";
+import { getSolanaConfig } from "../solana/config.js";
 
 dotenv.config();
 
@@ -157,6 +162,125 @@ program
     try {
       const rep = await criu.check();
       console.log(JSON.stringify(rep, null, 2));
+    } catch (e) {
+      console.error((e && e.message) || e);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("history")
+  .description("List migrations and Solana payment status (REST)")
+  .action(async () => {
+    try {
+      const r = await rest("/api/migrations");
+      const t = await r.text();
+      if (!r.ok) {
+        process.stderr.write(`HTTP ${r.status}: ${t}\n`);
+        process.exit(1);
+        return;
+      }
+      const rows = JSON.parse(t);
+      if (!Array.isArray(rows) || rows.length === 0) {
+        console.log("(no migrations)");
+        return;
+      }
+      for (const m of rows) {
+        const sig = m.payment_signature || "—";
+        const pay = m.payment_status || "—";
+        const lam = m.payment_lamports != null ? m.payment_lamports : "—";
+        console.log(
+          `${m.id}\t${m.session_id}\t${m.status}\t${pay}\tlamports=${lam}\t${sig}`,
+        );
+      }
+    } catch (e) {
+      console.error((e && e.message) || e);
+      process.exit(1);
+    }
+  });
+
+async function payMigrationById(migrationId) {
+  const keyPath = config.GRIDLOCK_WALLET_KEYPAIR;
+  if (!keyPath) {
+    throw new Error("set GRIDLOCK_WALLET_KEYPAIR in .env");
+  }
+  const keypair = loadKeypairFromFile(keyPath);
+  const rm = await rest(`/api/migrations/${encodeURIComponent(migrationId)}`);
+  if (!rm.ok) {
+    throw new Error(await rm.text());
+  }
+  const m = await rm.json();
+  if (m.payment_status === "confirmed") {
+    console.log("already confirmed", m.payment_signature);
+    return;
+  }
+  if (m.status !== "completed" || m.payment_status !== "pending") {
+    throw new Error("migration has no pending payment");
+  }
+  const lamports = Number(m.payment_lamports);
+  if (!Number.isFinite(lamports) || lamports <= 0) {
+    throw new Error("invalid payment_lamports");
+  }
+  const cfgR = await rest("/api/solana/config");
+  if (!cfgR.ok) {
+    throw new Error(await cfgR.text());
+  }
+  const cfg = await cfgR.json();
+  if (!cfg.treasury) {
+    throw new Error("server settlement not configured (SOLANA_TREASURY)");
+  }
+  const rpcUrl =
+    (config.SOLANA_RPC_URL && config.SOLANA_RPC_URL.trim()) ||
+    getSolanaConfig().rpcUrl;
+  const sig = await transferToTreasury({
+    rpcUrl,
+    keypair,
+    treasuryBase58: cfg.treasury,
+    lamports,
+  });
+  const cr = await rest("/api/solana/confirm", {
+    method: "POST",
+    body: JSON.stringify({ migrationId, signature: sig }),
+  });
+  if (!cr.ok) {
+    throw new Error(await cr.text());
+  }
+  console.log(JSON.stringify(await cr.json(), null, 2));
+}
+
+program
+  .command("pay")
+  .argument("<migrationId>", "migration id (e.g. mig-…)")
+  .description("Sign and submit pending Solana payment for a migration")
+  .action(async (migrationId) => {
+    try {
+      await payMigrationById(String(migrationId));
+    } catch (e) {
+      console.error((e && e.message) || e);
+      process.exit(1);
+    }
+  });
+
+program
+  .command("pay-pending")
+  .description("Pay all migrations with pending Solana settlement")
+  .action(async () => {
+    try {
+      const r = await rest("/api/solana/pending");
+      if (!r.ok) {
+        process.stderr.write(await r.text());
+        process.exit(1);
+        return;
+      }
+      const pending = await r.json();
+      if (!Array.isArray(pending) || pending.length === 0) {
+        console.log("(no pending payments)");
+        return;
+      }
+      for (const m of pending) {
+        console.error(`paying ${m.id}…`);
+        await payMigrationById(m.id);
+      }
     } catch (e) {
       console.error((e && e.message) || e);
       process.exit(1);

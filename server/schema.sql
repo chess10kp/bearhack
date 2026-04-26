@@ -48,6 +48,11 @@ CREATE TABLE IF NOT EXISTS migrations (
   error              TEXT,
   started_at         INTEGER,
   completed_at       INTEGER,
+  payment_lamports   INTEGER,
+  payment_signature  TEXT,
+  payer_pubkey       TEXT,
+  payment_status     TEXT DEFAULT 'none',
+  payment_error      TEXT,
   FOREIGN KEY (session_id) REFERENCES sessions(id),
   FOREIGN KEY (from_machine_id) REFERENCES machines(id),
   FOREIGN KEY (to_machine_id) REFERENCES machines(id)

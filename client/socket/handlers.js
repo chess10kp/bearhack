@@ -3,6 +3,12 @@ import * as control from "../services/process-control.js";
 import * as criu from "../services/criu.js";
 import * as launcher from "../services/launcher.js";
 import { config } from "../config.js";
+import * as log from "../utils/logger.js";
+import { SOLANA_PAYMENT_REQUEST } from "../../solana/socket-events.js";
+import {
+  loadKeypairFromFile,
+  transferToTreasury,
+} from "../../solana/wallet.js";
 
 /**
  * @typedef {Object} HandlerCtx
@@ -162,6 +168,60 @@ export function registerAll(ctx) {
       } catch {
         /* */
       }
+    }
+  });
+
+  socket.on(SOLANA_PAYMENT_REQUEST, async (data) => {
+    const keyPath = config.GRIDLOCK_WALLET_KEYPAIR;
+    if (!keyPath) {
+      log.warn(
+        "solana: set GRIDLOCK_WALLET_KEYPAIR to auto-pay after migration",
+      );
+      return;
+    }
+    let keypair;
+    try {
+      keypair = loadKeypairFromFile(keyPath);
+    } catch (e) {
+      log.error("solana wallet", (e && e.message) || e);
+      return;
+    }
+    const migrationId = data?.migrationId;
+    const lamports = Number(data?.lamports);
+    const treasury = data?.treasury;
+    const rpcUrl =
+      (config.SOLANA_RPC_URL && config.SOLANA_RPC_URL.trim()) ||
+      data?.rpcUrl ||
+      "";
+    if (
+      !migrationId ||
+      !Number.isFinite(lamports) ||
+      lamports <= 0 ||
+      !treasury ||
+      !rpcUrl
+    ) {
+      return;
+    }
+    try {
+      const signature = await transferToTreasury({
+        rpcUrl,
+        keypair,
+        treasuryBase58: treasury,
+        lamports,
+      });
+      const r = await fetch(`${config.SERVER_URL}/api/solana/confirm`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ migrationId, signature }),
+      });
+      if (!r.ok) {
+        const t = await r.text();
+        log.error("solana confirm", t);
+      } else {
+        log.info(`solana payment ok ${signature}`);
+      }
+    } catch (e) {
+      log.error("solana pay", (e && e.message) || e);
     }
   });
 }

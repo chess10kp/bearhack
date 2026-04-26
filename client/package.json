@@ -9,9 +9,13 @@
     "status": "node index.js status",
     "migrate": "node index.js migrate",
     "list": "node index.js list",
-    "checkpoint": "node index.js checkpoint"
+    "checkpoint": "node index.js checkpoint",
+    "history": "node index.js history",
+    "pay": "node index.js pay",
+    "pay-pending": "node index.js pay-pending"
   },
   "dependencies": {
+    "gridlock-solana": "file:../solana",
     "socket.io-client": "^4.8.1",
     "dotenv": "^16.0.0",
     "commander": "^12.0.0"

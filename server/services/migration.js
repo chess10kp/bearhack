@@ -11,6 +11,8 @@ import * as criu from "./criu.js";
 import * as transfer from "./transfer.js";
 import { stop as xpraStop } from "./xpra.js";
 import { stopPolling } from "./process-monitor.js";
+import { getSolanaConfig, isSettlementEnabled } from "../../solana/config.js";
+import { computeLamports, lamportsToSolDisplay } from "../../solana/pricing.js";
 
 const execFileAsync = promisify(execFile);
 
@@ -308,13 +310,26 @@ export async function execute(sessionId, targetMachineId) {
       "info",
     );
     const total = (Date.now() - t0) / 1000;
+    const solCfg = getSolanaConfig();
+    let paymentLamports = 0;
+    let paymentStatus = "none";
+    if (isSettlementEnabled(solCfg)) {
+      paymentLamports = computeLamports(total, solCfg, (k) => db.getSetting(k));
+      if (paymentLamports > 0) {
+        paymentStatus = "pending";
+      }
+    }
     db.updateMigration(migId, {
       status: "completed",
       completed_at: Math.floor(Date.now() / 1000),
       total_seconds: total,
+      payment_lamports: paymentLamports > 0 ? paymentLamports : null,
+      payment_status: paymentStatus,
     });
     emitProgress(sessionId, toM.label || toM.id, 3, 100);
     const io0 = getIo();
+    const costSol =
+      paymentLamports > 0 ? lamportsToSolDisplay(paymentLamports) : null;
     if (io0) {
       io0.emit(S.migrationCompleted, {
         sessionId,
@@ -322,8 +337,26 @@ export async function execute(sessionId, targetMachineId) {
         message: "migration completed",
         startedAt: t0,
         endedAt: Date.now(),
-        cost: null,
+        cost: costSol,
+        costLamports: paymentLamports > 0 ? paymentLamports : null,
+        migrationId: migId,
+        solanaSignature: null,
+        solanaExplorerTx: null,
+        paymentPending: paymentStatus === "pending",
+        cluster: solCfg.cluster,
       });
+      if (paymentStatus === "pending" && paymentLamports > 0) {
+        const payPayload = {
+          migrationId: migId,
+          sessionId,
+          lamports: paymentLamports,
+          treasury: solCfg.treasury,
+          rpcUrl: solCfg.rpcUrl,
+          cluster: solCfg.cluster,
+        };
+        io0.emit(S.solanaPaymentRequest, payPayload);
+        io0.of("/client").emit(S.solanaPaymentRequest, payPayload);
+      }
       const srow = db.getSession(sessionId);
       if (srow) {
         const now = Math.floor(Date.now() / 1000);

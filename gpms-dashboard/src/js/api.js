@@ -99,17 +99,36 @@ function wireSocketHandlers(s) {
       if (sess) {
         state.upsertSession({ ...sess, status: "running", health: "ok" });
       }
+      const mid = p.migrationId || `mig-${Date.now()}`;
       state.addMigrationRecord({
-        id: `mig-${Date.now()}`,
+        id: mid,
+        migrationId: p.migrationId || mid,
         sessionId: String(sid),
         startedAt: p.startedAt,
         endedAt: p.endedAt || Date.now(),
         success: true,
         cost: p.cost,
         message: p.message,
+        solanaSignature: p.solanaSignature || undefined,
+        solanaExplorerTx: p.solanaExplorerTx || undefined,
+        paymentPending: p.paymentPending,
       });
       const n = (state.getState().migrationsToday || 0) + 1;
       state.setMigrationsToday(n);
+    }
+  });
+  s.on("solana:payment-confirmed", (p) => {
+    if (p && p.migrationId) {
+      state.patchMigrationRecordByMigrationId(String(p.migrationId), {
+        solanaSignature: p.signature,
+        solanaExplorerTx: p.explorerUrl,
+        paymentPending: false,
+      });
+      const short = p.signature ? String(p.signature).slice(0, 16) : "";
+      state.appendLog(
+        short ? `solana payment confirmed · ${short}…` : "solana payment confirmed",
+        "ok",
+      );
     }
   });
   s.on("migration:failed", (p) => {
@@ -289,6 +308,30 @@ export async function putSettings(body) {
   return r.json();
 }
 
+function migrationRowToRecord(row) {
+  if (!row || !row.id) return null;
+  const started =
+    row.started_at != null ? Number(row.started_at) * 1000 : undefined;
+  const ended =
+    row.completed_at != null ? Number(row.completed_at) * 1000 : undefined;
+  const cost =
+    row.payment_lamports != null
+      ? (Number(row.payment_lamports) / 1e9).toFixed(6)
+      : undefined;
+  return {
+    id: row.id,
+    migrationId: row.id,
+    sessionId: row.session_id,
+    startedAt: started,
+    endedAt: ended,
+    success: row.status === "completed",
+    cost: cost || undefined,
+    message: row.error || undefined,
+    solanaSignature: row.payment_signature || undefined,
+    paymentPending: row.payment_status === "pending",
+  };
+}
+
 export async function prefetchAfterConnect() {
   try {
     const st = await fetchSettings();
@@ -297,8 +340,20 @@ export async function prefetchAfterConnect() {
     /* server may not implement yet */
   }
   try {
+    const sc = await rest("/api/solana/config");
+    if (sc.ok) {
+      const j = await sc.json();
+      if (j && j.cluster) state.setSolanaCluster(j.cluster);
+    }
+  } catch {
+    /* optional */
+  }
+  try {
     const h = await fetchMigrations();
-    if (Array.isArray(h)) state.setMigrationHistory(h);
+    if (Array.isArray(h)) {
+      const recs = h.map(migrationRowToRecord).filter(Boolean);
+      state.setMigrationHistory(recs);
+    }
   } catch {
     /* optional */
   }
