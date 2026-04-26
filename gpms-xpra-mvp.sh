@@ -3,12 +3,12 @@ set -euo pipefail
 
 DISPLAY_NUM="${DISPLAY_NUM:-110}"
 DISPLAY_ID=":${DISPLAY_NUM}"
-CHILD_CMD="${CHILD_CMD:-code --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile}"
+CHILD_CMD="${CHILD_CMD:-code --wait --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile /tmp}"
 WORKDIR="${WORKDIR:-/tmp/gpms-xpra-mvp}"
 LOGDIR="${WORKDIR}/logs"
 TCP_PORT="${TCP_PORT:-14600}"
 BIND_ADDR="${BIND_ADDR:-127.0.0.1}"
-START_MODE="${START_MODE:-start}"
+START_MODE="${START_MODE:-start-child}"
 EXIT_WITH_CHILDREN="${EXIT_WITH_CHILDREN:-no}"
 STARTUP_TIMEOUT="${STARTUP_TIMEOUT:-60}"
 STARTUP_POLL_SECONDS="${STARTUP_POLL_SECONDS:-1}"
@@ -19,6 +19,7 @@ ATTACH_RETRIES="${ATTACH_RETRIES:-2}"
 ATTACH_RETRY_WAIT_SECONDS="${ATTACH_RETRY_WAIT_SECONDS:-1}"
 ATTACH_OPENGL="${ATTACH_OPENGL:-force}"
 CONNECT_URI="tcp://${BIND_ADDR}:${TCP_PORT}/"
+XVFB_CMD="${XVFB_CMD:-Xvfb -screen 0 1920x1080x24 +extension GLX +extension RANDR +extension RENDER +extension Composite -extension DOUBLE-BUFFER -extension MIT-SHM -nolisten tcp -noreset -auth ${XAUTHORITY:-$HOME/.Xauthority}}"
 
 mkdir -p "${LOGDIR}"
 
@@ -130,6 +131,7 @@ start_session() {
     --exit-with-children="${EXIT_WITH_CHILDREN}" \
     "${start_flag}" \
     --bind-tcp="${BIND_ADDR}:${TCP_PORT}" \
+    --xvfb="${XVFB_CMD}" \
     --html=on \
     --webcam=no \
     --mdns=no \
@@ -255,15 +257,16 @@ Usage:
 
 Env overrides:
   DISPLAY_NUM=110
-  CHILD_CMD='code'
-  START_MODE=start            Use 'start' for apps that daemonize (eg vscode), 'start-child' otherwise
+  CHILD_CMD='code --wait ... /tmp'
+  START_MODE=start-child      Use 'start-child' for checkpointability; use 'start' only for detached daemons
   EXIT_WITH_CHILDREN=no       Use 'yes' when using start-child and you want server to exit with app
   TCP_PORT=14600
   BIND_ADDR=127.0.0.1
   ATTACH_OPENGL=force
+  XVFB_CMD='Xvfb ... -extension MIT-SHM ...'
 
 Recommended for VSCode:
-  CHILD_CMD='code --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile' START_MODE=start EXIT_WITH_CHILDREN=no ./gpms-xpra-mvp.sh start
+  CHILD_CMD='code --wait --new-window --ozone-platform=x11 --disable-gpu --no-sandbox --user-data-dir=/tmp/vscode-xpra-profile /tmp' START_MODE=start-child EXIT_WITH_CHILDREN=no ./gpms-xpra-mvp.sh start
 USAGE
 }
 
