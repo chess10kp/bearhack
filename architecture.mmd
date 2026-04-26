@@ -1,0 +1,40 @@
+```mermaid
+graph TD
+    A[create_gui] --> B[Root Window]
+    A --> C[Game Frame]
+    A --> D[Status Label]
+    A --> E[Reset Button]
+    
+    C --> F[Button 0]
+    C --> G[Button 1]
+    C --> H[Button 2]
+    C --> I[Button 3]
+    C --> J[Button 4]
+    C --> K[Button 5]
+    C --> L[Button 6]
+    C --> M[Button 7]
+    C --> N[Button 8]
+    
+    F -.-> O[on_click]
+    G -.-> O
+    H -.-> O
+    I -.-> O
+    J -.-> O
+    K -.-> O
+    L -.-> O
+    M -.-> O
+    N -.-> O
+    
+    O --> P[check_winner]
+    E -.-> Q[reset]
+    
+    subgraph State
+        R[current_player]
+        S[game_over]
+        T[buttons list]
+    end
+    
+    O -.-> R
+    O -.-> S
+    O -.-> T
+```
