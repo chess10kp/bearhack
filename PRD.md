@@ -82,6 +82,10 @@ GridLock is: **your program's escape hatch to someone else's hardware, invisibly
 
 ## Component Roles
 
+> Implementation note (hybrid transition): current codebase runs a hybrid transport path.
+> `ssh/rsync` remains available and is the default fallback while DCP orchestration is being
+> integrated incrementally. Migration rows track `transport_kind` and DCP job metadata.
+
 ### GridLock Client (runs on user's machine, Linux)
 
 **Responsibilities:**
@@ -111,6 +115,12 @@ A rules engine would need hardcoded thresholds and exhaustive edge cases. Gemma 
 - Distributing payment via DCP credits (or Solana settlement as the user-facing layer)
 
 **Stack:** `dcp-client` library
+
+**Current implementation status:**
+- `server` includes `dcp-client` and a DCP orchestration service.
+- `dcp-work/checkpoint.js` exists as the work-function contract scaffold.
+- DCP is selectable per migration (`transportKind=dcp`) and via settings.
+- SSH transport remains as fallback for reliability during rollout.
 
 **Note on CRIU + DCP:** CRIU checkpoints are system-level process snapshots. DCP runs work functions in sandboxed workers. For GridLock, DCP is the **orchestration and transport layer** — it manages which node gets which checkpoint, tracks job state, and handles result return. The actual process execution on the remote node is managed by a specialized **GridLock Worker daemon**, not a raw DCP work function.
 
