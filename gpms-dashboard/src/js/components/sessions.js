@@ -94,9 +94,6 @@ export function mountSessions() {
         }
         if (act === "inspect") {
           state.setSelectedSessionId(id);
-          window.dispatchEvent(
-            new CustomEvent("gpms:inspect", { detail: { sessionId: id } }),
-          );
         }
       });
     });
